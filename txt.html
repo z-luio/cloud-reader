@@ -4,8 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>云阅读 - EPUB/TXT阅读器</title>
-    <!-- 固定版本的本地依赖：离线也可解析 EPUB，见 THIRD_PARTY_NOTICES.md。 -->
-    <script src="./vendor/jszip-3.10.1.min.js" defer></script>
     <style>
         :root {
             --bg: #f5e6c8;
@@ -1296,6 +1294,86 @@
             const $ = (sel) => document.querySelector(sel);
             const $$ = (sel) => document.querySelectorAll(sel);
 
+            // JSZip 仅在导入 EPUB 时加载：在线优先使用带 SRI 的固定 CDN，
+            // 离线、超时或完整性校验失败时回退到随项目发布的本地副本。
+            const JSZIP_SOURCES = {
+                cdn: {
+                    src: 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
+                    integrity: 'sha512-XMVd28F1oH/O71fzwBnV7HucLxVwtxf26XV8P4wPk26EDxuGZ91N8bsOttmnomcCD3CS5ZMRL50H0GgOHvegtg=='
+                },
+                local: { src: './vendor/jszip-3.10.1.min.js' }
+            };
+            let jsZipLoadPromise = null;
+
+            function loadScript(source, timeoutMs = 3500) {
+                return new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    let settled = false;
+                    const finish = (callback, value) => {
+                        if (settled) return;
+                        settled = true;
+                        clearTimeout(timer);
+                        script.onload = null;
+                        script.onerror = null;
+                        callback(value);
+                    };
+                    const timer = setTimeout(() => {
+                        script.remove();
+                        finish(reject, new Error(`加载超时：${source.src}`));
+                    }, timeoutMs);
+
+                    script.src = source.src;
+                    script.async = true;
+                    script.referrerPolicy = 'no-referrer';
+                    if (source.integrity) {
+                        script.integrity = source.integrity;
+                        script.crossOrigin = 'anonymous';
+                    }
+                    script.onload = () => {
+                        if (window.JSZip && typeof window.JSZip.loadAsync === 'function') {
+                            finish(resolve, window.JSZip);
+                        } else {
+                            script.remove();
+                            finish(reject, new Error(`库初始化失败：${source.src}`));
+                        }
+                    };
+                    script.onerror = () => {
+                        script.remove();
+                        finish(reject, new Error(`加载失败：${source.src}`));
+                    };
+                    document.head.appendChild(script);
+                });
+            }
+
+            async function ensureJSZip() {
+                if (window.JSZip && typeof window.JSZip.loadAsync === 'function') return window.JSZip;
+                if (jsZipLoadPromise) return jsZipLoadPromise;
+
+                jsZipLoadPromise = (async () => {
+                    // navigator.onLine 只能提示离线状态，不能证明网络可用；在线分支仍有超时回退。
+                    const candidates = navigator.onLine === false
+                        ? [JSZIP_SOURCES.local]
+                        : [JSZIP_SOURCES.cdn, JSZIP_SOURCES.local];
+                    const failures = [];
+                    for (const source of candidates) {
+                        try {
+                            return await loadScript(source);
+                        } catch (error) {
+                            failures.push(error.message);
+                            console.warn('[JSZip]', error.message);
+                        }
+                    }
+                    throw new Error(`JSZip 加载失败（${failures.join('；')}）`);
+                })();
+
+                try {
+                    return await jsZipLoadPromise;
+                } catch (error) {
+                    jsZipLoadPromise = null; // 网络恢复或本地文件修复后允许重试。
+                    throw error;
+                }
+            }
+
             const uploadPage = $('#upload-page');
             const readerPage = $('#reader-page');
             const fileInput = $('#file-input');
@@ -1765,9 +1843,7 @@
             async function parseEpub(file) {
                 showLoading(true, '正在解析EPUB文件...');
                 try {
-                    if (typeof JSZip === 'undefined') {
-                        throw new Error('EPUB 解析库（JSZip）未加载：请检查网络连接，或将 jszip 库本地化部署');
-                    }
+                    const JSZip = await ensureJSZip();
                     const zip = await JSZip.loadAsync(file);
                     state.zip = zip;
 
