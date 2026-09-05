@@ -50,6 +50,8 @@ cloud-reader/
 ├── assets/screenshots/       # README 中的真实界面截图
 ├── LICENSE                   # MIT 许可证
 ├── THIRD_PARTY_NOTICES.md    # JSZip 的 MIT 许可声明
+├── vendor/
+│   └── jszip-3.10.1.min.js   # 已校验的 EPUB 解析依赖，随仓库发布
 └── README.md
 ```
 
