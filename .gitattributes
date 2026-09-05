@@ -1,0 +1,3 @@
+# Preserve vendored and binary assets byte-for-byte across clones.
+vendor/jszip-3.10.1.min.js -text
+*.png binary
