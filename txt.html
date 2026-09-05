@@ -237,6 +237,34 @@
             color: var(--text-secondary);
             letter-spacing: 1px;
         }
+        .folder-picker {
+            margin-top: 14px;
+        }
+        .folder-picker button {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px 14px;
+            background: var(--panel-bg);
+            color: var(--text-secondary);
+            cursor: pointer;
+        }
+        .folder-picker button:hover {
+            color: var(--accent);
+            border-color: var(--accent);
+        }
+        .import-progress {
+            width: 220px;
+            height: 6px;
+            accent-color: var(--accent);
+        }
+        #cancel-loading {
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 6px 12px;
+            background: transparent;
+            color: var(--text-secondary);
+            cursor: pointer;
+        }
 
         /* ========== 阅读器页面（无页眉页脚版） ========== */
         #reader-page {
@@ -1111,7 +1139,11 @@
                 </div>
                 <div class="text">点击或拖拽上传 EPUB / TXT 文件</div>
                 <div class="hint">支持 .epub · .txt 格式 · TXT 自动识别编码与章节</div>
-                <input type="file" id="file-input" accept=".epub,.txt" />
+                <input type="file" id="file-input" accept=".epub,.txt" multiple />
+            </div>
+            <div class="folder-picker">
+                <button type="button" id="folder-picker-button">选择 TXT 文件夹</button>
+                <input type="file" id="folder-input" accept=".txt,text/plain" webkitdirectory multiple hidden />
             </div>
             <div class="upload-footer">— 支持章节导航 · 多主题 · 进度记忆 —</div>
         </div>
@@ -1238,6 +1270,8 @@
     <div id="loading-indicator">
         <div class="loading-spinner"></div>
         <span>正在加载...</span>
+        <progress id="import-progress" class="import-progress" value="0" max="1" hidden></progress>
+        <button type="button" id="cancel-loading" hidden>取消</button>
     </div>
 
     <!-- 章节切换遮罩 -->
@@ -1278,9 +1312,24 @@
                 renderedUpTo: -1,          // 当前 DOM 窗口已渲染到的章节索引（含）
                 renderedLo: -1,            // 当前 DOM 窗口起始章节索引（含）
                 txtParts: null,            // TXT 分章结果（{title, lines}[]），章节 HTML 按需惰性生成
+                txtFiles: null,            // 多 TXT 模式：一个文件对应一个章节
+                txtChapterCache: new Map(), // 多 TXT HTML LRU 缓存
+                loadToken: 0,              // 丢弃切书后仍返回的旧异步任务
+                txtBookFingerprint: '',
+                txtMode: false,
+                txtLimits: {
+                    maxFiles: 2000,
+                    maxFileBytes: 50 * 1024 * 1024,
+                    maxTotalBytes: 512 * 1024 * 1024,
+                    maxCachedChapters: 8,
+                },
                 _geomDirty: false,         // 章节块几何缓存（dataset.top/height）是否过期需重测
                 _renderChain: null,        // 无缝渲染串行锁（Promise 链）
                 _chapterLoading: null,     // 章节加载去重（index -> Promise）
+                _txtChapterLoading: new Map(), // 多 TXT 章节读取去重（index -> Promise）
+                _importAbortController: null,
+                loadingTaskId: null,
+                chapterLoadingTaskId: null,
                 autoHideTimer: null,       // 工具栏自动隐藏定时器
                 isDraggingProgress: false, // 是否正在拖拽进度条
                 swipeThresholdX: 60,       // 左右手势触发阈值（px）
@@ -1377,6 +1426,8 @@
             const uploadPage = $('#upload-page');
             const readerPage = $('#reader-page');
             const fileInput = $('#file-input');
+            const folderInput = $('#folder-input');
+            const folderPickerButton = $('#folder-picker-button');
             const dropzone = $('#dropzone');
             const contentArea = $('#content-area');
             const chapterContent = $('#chapter-content');
@@ -1388,6 +1439,8 @@
             const settingsOverlay = $('#settings-overlay');
             const settingsPanel = $('#settings-panel');
             const loadingIndicator = $('#loading-indicator');
+            const importProgress = $('#import-progress');
+            const cancelLoading = $('#cancel-loading');
             const chapterLoadingOverlay = $('#chapter-loading-overlay');
             const fontSizeDisplay = $('#font-size-display');
 
@@ -1407,21 +1460,53 @@
             };
 
             // ==================== 工具函数 ====================
-            function showLoading(show, text) {
+            function showLoading(show, text, progress = null, taskId = null) {
                 if (show) {
+                    if (taskId !== null) state.loadingTaskId = taskId;
                     loadingIndicator.querySelector('span').textContent = text || '正在加载...';
+                    if (progress && progress.total > 0) {
+                        importProgress.max = progress.total;
+                        importProgress.value = Math.min(progress.current, progress.total);
+                        importProgress.hidden = false;
+                        cancelLoading.hidden = false;
+                    } else {
+                        importProgress.hidden = true;
+                        cancelLoading.hidden = true;
+                    }
                     loadingIndicator.classList.add('active');
                 } else {
+                    if (taskId !== null && state.loadingTaskId !== taskId) return;
                     loadingIndicator.classList.remove('active');
+                    importProgress.hidden = true;
+                    cancelLoading.hidden = true;
+                    state.loadingTaskId = null;
                 }
             }
 
-            function showChapterLoading(show) {
+            function updateImportProgress(current, total) {
+                showLoading(true, `正在整理 TXT 文件 ${current} / ${total}`, { current, total });
+            }
+
+            function cancelImport() {
+                state.loadToken++;
+                state._importAbortController?.abort();
+                state._importAbortController = null;
+                showLoading(false);
+            }
+
+            function showChapterLoading(show, taskId = state.loadToken) {
                 if (show) {
+                    state.chapterLoadingTaskId = taskId;
                     chapterLoadingOverlay.classList.add('active');
                 } else {
+                    if (taskId !== state.chapterLoadingTaskId) return;
                     chapterLoadingOverlay.classList.remove('active');
+                    state.chapterLoadingTaskId = null;
                 }
+            }
+
+            function assertCurrentLoad(taskId) {
+                if (taskId !== state.loadToken) throw new DOMException('加载任务已过期', 'AbortError');
             }
 
             function debounce(fn, delay) {
@@ -1803,12 +1888,101 @@
                 return raw;
             }
 
+            function naturalFileCompare(a, b) {
+                const left = String(a.webkitRelativePath || a.name).split(/(\d+)/).map(v => /^\d+$/.test(v) ? Number(v) : v);
+                const right = String(b.webkitRelativePath || b.name).split(/(\d+)/).map(v => /^\d+$/.test(v) ? Number(v) : v);
+                const length = Math.max(left.length, right.length);
+                for (let i = 0; i < length; i++) {
+                    if (left[i] === undefined) return -1;
+                    if (right[i] === undefined) return 1;
+                    if (left[i] === right[i]) continue;
+                    if (typeof left[i] === 'number' && typeof right[i] === 'number') return left[i] - right[i];
+                    return String(left[i]).localeCompare(String(right[i]), 'zh-CN');
+                }
+                return 0;
+            }
+
+            function createTxtBookFingerprint(files) {
+                let hash = 2166136261;
+                const source = files.map(file => [file.webkitRelativePath || file.name, file.size, file.lastModified].join(':')).join('|');
+                for (let i = 0; i < source.length; i++) {
+                    hash ^= source.charCodeAt(i);
+                    hash = Math.imul(hash, 16777619);
+                }
+                return (hash >>> 0).toString(16);
+            }
+
+            async function prepareMultiTxtFiles(fileList, signal) {
+                const files = [...fileList].filter(file => /\.txt$/i.test(file.name)).sort(naturalFileCompare);
+                if (!files.length) throw new Error('没有找到 TXT 文件');
+                if (files.length > state.txtLimits.maxFiles) throw new Error(`TXT 文件数量不能超过 ${state.txtLimits.maxFiles} 个`);
+                let totalBytes = 0;
+                const seen = new Set();
+                const entries = [];
+                for (let i = 0; i < files.length; i++) {
+                    if (signal?.aborted) throw new DOMException('导入已取消', 'AbortError');
+                    const file = files[i];
+                    if (file.size > state.txtLimits.maxFileBytes) throw new Error(`文件过大：${file.name}`);
+                    const path = file.webkitRelativePath || file.name;
+                    const key = [path, file.size, file.lastModified].join(':');
+                    if (seen.has(key)) {
+                        updateImportProgress(i + 1, files.length);
+                        continue;
+                    }
+                    totalBytes += file.size;
+                    if (totalBytes > state.txtLimits.maxTotalBytes) throw new Error('TXT 文件总大小超过限制');
+                    seen.add(key);
+                    entries.push({ file, fileName: path, title: file.name.replace(/\.txt$/i, '').trim() || '未命名章节' });
+                    updateImportProgress(i + 1, files.length);
+                    if (i % 100 === 99) await new Promise(resolve => requestAnimationFrame(resolve));
+                }
+                return entries;
+            }
+
+            async function parseTxtFiles(fileList) {
+                const loadToken = state.loadToken;
+                showLoading(true, '正在整理 TXT 章节...', null, loadToken);
+                try {
+                    const signal = state._importAbortController?.signal;
+                    updateImportProgress(0, fileList.length);
+                    const entries = await prepareMultiTxtFiles(fileList, signal);
+                    assertCurrentLoad(loadToken);
+                    state.txtFiles = entries;
+                    state.txtBookFingerprint = createTxtBookFingerprint(entries.map(entry => entry.file));
+                    state.txtMode = true;
+                    state.txtParts = null;
+                    state.txtChapterCache.clear();
+                    state.bookInfo.title = entries.length === 1
+                        ? entries[0].title
+                        : `${entries[0].title} 等 ${entries.length} 个文件`;
+                    state.bookInfo.author = '未知作者';
+                    state.totalChapters = entries.length;
+                    state.currentChapter = 0;
+                    state.chapters = new Array(entries.length);
+                    state.chapterTitles = entries.map(entry => entry.title);
+                    state.scrollPositions = {};
+                    state.spine = [];
+                    state.zip = null;
+                    return true;
+                } catch (err) {
+                    if (err.name === 'AbortError') return false;
+                    console.error('多 TXT 解析失败:', err);
+                    alert('多 TXT 导入失败：' + err.message);
+                    return false;
+                } finally {
+                    showLoading(false, null, null, loadToken);
+                }
+            }
+
             // TXT主解析：一次解码 + 一次分章，产出与 parseEpub 相同的 state 结构，阅读层零改动复用
             async function parseTxt(file) {
-                showLoading(true, '正在解析TXT文件...');
+                const loadToken = state.loadToken;
+                showLoading(true, '正在解析TXT文件...', null, loadToken);
                 try {
                     const buffer = await file.arrayBuffer();
+                    assertCurrentLoad(loadToken);
                     const { text, enc } = detectAndDecodeText(buffer);
+                    assertCurrentLoad(loadToken);
                     if (!text || !text.trim()) throw new Error('文件内容为空或编码无法识别');
 
                     const lines = txtCleanRaw(text);
@@ -1827,12 +2001,13 @@
                     state.spine = [];
                     state.zip = null;
 
-                    showLoading(false);
+                    showLoading(false, null, null, loadToken);
                     const wan = (text.length / 10000).toFixed(1);
                     console.log(`TXT解析完成：${state.totalChapters} 章 · 约 ${wan} 万字 · 编码 ${enc}`);
                     return true;
                 } catch (err) {
-                    showLoading(false);
+                    showLoading(false, null, null, loadToken);
+                    if (err.name === 'AbortError') return false;
                     console.error('TXT解析失败:', err);
                     alert('TXT解析失败：' + err.message);
                     return false;
@@ -1841,14 +2016,18 @@
 
             // ==================== EPUB解析 ====================
             async function parseEpub(file) {
-                showLoading(true, '正在解析EPUB文件...');
+                const loadToken = state.loadToken;
+                showLoading(true, '正在解析EPUB文件...', null, loadToken);
                 try {
                     const JSZip = await ensureJSZip();
+                    assertCurrentLoad(loadToken);
                     const zip = await JSZip.loadAsync(file);
+                    assertCurrentLoad(loadToken);
                     state.zip = zip;
 
                     // 1. 解析container.xml
                     const containerXml = await zip.file('META-INF/container.xml')?.async('string');
+                    assertCurrentLoad(loadToken);
                     if (!containerXml) throw new Error('无效的EPUB文件：缺少container.xml');
 
                     const containerDoc = new DOMParser().parseFromString(containerXml, 'application/xml');
@@ -1860,6 +2039,7 @@
 
                     // 2. 解析OPF文件
                     const opfContent = await zip.file(opfPath)?.async('string');
+                    assertCurrentLoad(loadToken);
                     if (!opfContent) throw new Error('无法读取OPF文件');
 
                     const opfDoc = new DOMParser().parseFromString(opfContent, 'application/xml');
@@ -1917,12 +2097,13 @@
                     state.scrollPositions = {};
                     state.txtParts = null;
 
-                    showLoading(false);
+                    showLoading(false, null, null, loadToken);
                     // 后台批量预提取所有章节标题（不阻塞，目录打开时再 await）
                     ensureAllChapterTitlesLoaded().catch(() => {});
                     return true;
                 } catch (err) {
-                    showLoading(false);
+                    showLoading(false, null, null, loadToken);
+                    if (err.name === 'AbortError') return false;
                     console.error('EPUB解析失败:', err);
                     alert('EPUB解析失败：' + err.message);
                     return false;
@@ -1931,24 +2112,24 @@
 
             async function loadChapter(index, options = {}) {
                 if (index < 0 || index >= state.totalChapters) return;
+                const loadToken = state.loadToken;
                 const { preserveScroll = false, scrollToRatio = null } = options;
-                showChapterLoading(true);
+                showChapterLoading(true, loadToken);
                 try {
                     // 预加载目标章节及前后章节（提高切换/无缝衔接速度）
                     const preloadTargets = [index, index - 1, index + 1, index + 2].filter(i => i >= 0 && i < state.totalChapters);
-                    for (const ti of preloadTargets) {
-                        if (state.chapters[ti]) continue;
-                        await loadChapterContentOnly(ti);
-                    }
+                    await loadChapterSet(preloadTargets, 2, loadToken);
+                    assertCurrentLoad(loadToken);
 
                     state.currentChapter = index;
 
                     // 渲染（无缝模式：合并多章；普通模式：单章）
                     if (state.seamlessMode) {
-                        await renderSeamlessUpTo(Math.min(index + 2, state.totalChapters - 1));
+                        await renderSeamlessUpTo(Math.min(index + 2, state.totalChapters - 1), loadToken);
                     } else {
                         renderChapter();
                     }
+                    assertCurrentLoad(loadToken);
 
                     // 滚动位置处理
                     if (scrollToRatio !== null) {
@@ -2006,16 +2187,74 @@
                     updateUI();
 
                 } catch (err) {
+                    if (err.name === 'AbortError') return;
                     console.error('加载章节失败:', err);
                     alert('加载章节失败：' + err.message);
                 } finally {
-                    showChapterLoading(false);
+                    showChapterLoading(false, loadToken);
+                }
+            }
+
+            async function loadChapterSet(indices, concurrency, loadToken = state.loadToken) {
+                let cursor = 0;
+                const worker = async () => {
+                    while (cursor < indices.length) {
+                        assertCurrentLoad(loadToken);
+                        const index = indices[cursor++];
+                        if (!state.chapters[index]) await loadChapterContentOnly(index);
+                    }
+                };
+                await Promise.all(Array.from({ length: Math.min(concurrency, indices.length) }, worker));
+            }
+
+            async function loadMultiTxtChapter(index) {
+                const cached = state.txtChapterCache.get(index);
+                if (cached) {
+                    cached.lastUsed = Date.now();
+                    state.chapters[index] = cached.html;
+                    return;
+                }
+                if (state._txtChapterLoading.has(index)) return state._txtChapterLoading.get(index);
+                const loadToken = state.loadToken;
+                const task = (async () => {
+                    const entry = state.txtFiles[index];
+                    const buffer = await entry.file.arrayBuffer();
+                    if (loadToken !== state.loadToken) return;
+                    const { text } = detectAndDecodeText(buffer);
+                    if (loadToken !== state.loadToken) return;
+                    state.chapters[index] = text && text.trim()
+                        ? chapterToHtml(txtCleanRaw(text))
+                        : '<p>（本章内容为空）</p>';
+                    state.txtChapterCache.set(index, { html: state.chapters[index], lastUsed: Date.now() });
+                    while (state.txtChapterCache.size > state.txtLimits.maxCachedChapters) {
+                        let oldestIndex = null;
+                        let oldestTime = Infinity;
+                        for (const [cachedIndex, cachedEntry] of state.txtChapterCache) {
+                            if (cachedIndex === state.currentChapter) continue;
+                            if (cachedEntry.lastUsed < oldestTime) {
+                                oldestTime = cachedEntry.lastUsed;
+                                oldestIndex = cachedIndex;
+                            }
+                        }
+                        if (oldestIndex === null) break;
+                        state.txtChapterCache.delete(oldestIndex);
+                        if (oldestIndex !== index) state.chapters[oldestIndex] = null;
+                    }
+                })();
+                state._txtChapterLoading.set(index, task);
+                try {
+                    await task;
+                } finally {
+                    if (state._txtChapterLoading.get(index) === task) state._txtChapterLoading.delete(index);
                 }
             }
 
             // 仅加载单章内容到缓存（不渲染）
             async function loadChapterContentOnly(index) {
                 if (state.chapters[index]) return;
+                if (state.txtFiles && state.txtFiles[index]) {
+                    return loadMultiTxtChapter(index);
+                }
                 // TXT模式：章节 HTML 按需从分章结果惰性构建（避免大书一次性同步生成全部章节）
                 if (state.txtParts && state.txtParts.length) {
                     const part = state.txtParts[index];
@@ -2060,7 +2299,7 @@
                 try {
                     await task;
                 } finally {
-                    delete state._chapterLoading[index];
+                    if (state._chapterLoading[index] === task) delete state._chapterLoading[index];
                 }
             }
 
@@ -2157,28 +2396,32 @@
                 return block;
             }
 
-            async function renderSeamlessUpTo(upToIndex) {
+            async function renderSeamlessUpTo(upToIndex, loadToken = state.loadToken) {
                 // 串行化：并发调用（连点翻章、滚动追加途中跳目录）排队执行，后一次基于最新窗口自我修正
                 const prev = state._renderChain || Promise.resolve();
                 let release;
                 state._renderChain = new Promise(r => { release = r; });
                 await prev;
                 try {
-                    await doRenderSeamless(upToIndex);
+                    assertCurrentLoad(loadToken);
+                    await doRenderSeamless(upToIndex, loadToken);
                 } finally {
                     release();
                 }
             }
 
-            async function doRenderSeamless(upToIndex) {
+            async function doRenderSeamless(upToIndex, loadToken = state.loadToken) {
+                assertCurrentLoad(loadToken);
                 const total = state.totalChapters;
                 if (total <= 0) return;
                 upToIndex = Math.min(Math.max(0, upToIndex), total - 1);
 
                 // 期望窗口：下限以当前章前 RENDER_BEHIND 章为准，上限至少覆盖 upToIndex 与当前章+2
                 const wantHi = Math.max(upToIndex, Math.min(total - 1, state.currentChapter + 2));
-                let wantLo = Math.max(0, Math.min(state.currentChapter - RENDER_BEHIND, wantHi - RENDER_WINDOW + 1));
-                if (wantHi - wantLo + 1 > RENDER_WINDOW) wantLo = wantHi - RENDER_WINDOW + 1;
+                const renderWindow = state.txtMode ? 12 : RENDER_WINDOW;
+                const renderBehind = state.txtMode ? 3 : RENDER_BEHIND;
+                let wantLo = Math.max(0, Math.min(state.currentChapter - renderBehind, wantHi - renderWindow + 1));
+                if (wantHi - wantLo + 1 > renderWindow) wantLo = wantHi - renderWindow + 1;
 
                 // 现有块索引
                 const existing = new Map();
@@ -2206,8 +2449,10 @@
 
                 // 构建窗口内缺失的块（升序；用第一个 idx 更大的现存块做锚点 insertBefore，保证回跳补块顺序正确）
                 for (let i = wantLo; i <= wantHi; i++) {
+                    assertCurrentLoad(loadToken);
                     if (existing.has(i)) continue;
                     if (!state.chapters[i]) await loadChapterContentOnly(i);
+                    assertCurrentLoad(loadToken);
                     const block = buildChapterBlock(i);
                     let anchor = null;
                     for (const b of chapterContent.querySelectorAll('.chapter-block')) {
@@ -2954,6 +3199,14 @@
                 state.chapterTitles = [];
                 state.spine = [];
                 state.txtParts = null;
+                state.txtFiles = null;
+                state.txtChapterCache.clear();
+                state._txtChapterLoading.clear();
+                state._importAbortController?.abort();
+                state._importAbortController = null;
+                state.txtBookFingerprint = '';
+                state.txtMode = false;
+                state.loadToken++;
                 state.scrollPositions = {};
                 state.renderedUpTo = -1;
                 state.renderedLo = -1;
@@ -2965,6 +3218,8 @@
                 state._appendingLock = false;
                 state._renderChain = null;
                 state._chapterLoading = null;
+                state.loadingTaskId = null;
+                state.chapterLoadingTaskId = null;
                 state._geomDirty = false;
                 if (state.autoHideTimer) { clearTimeout(state.autoHideTimer); state.autoHideTimer = null; }
                 readerPage.classList.remove('active');
@@ -2978,10 +3233,15 @@
             // ==================== 事件监听 ====================
             // 文件上传
             fileInput.addEventListener('change', async (e) => {
-                const file = e.target.files[0];
-                if (file) await handleFile(file);
+                if (e.target.files.length) await handleFiles(e.target.files);
                 fileInput.value = '';
             });
+            folderPickerButton.addEventListener('click', () => folderInput.click());
+            folderInput.addEventListener('change', async (e) => {
+                if (e.target.files.length) await handleFiles(e.target.files, true);
+                folderInput.value = '';
+            });
+            cancelLoading.addEventListener('click', cancelImport);
 
             // 拖拽上传
             dropzone.addEventListener('dragover', (e) => {
@@ -2995,9 +3255,46 @@
             dropzone.addEventListener('drop', async (e) => {
                 e.preventDefault();
                 dropzone.classList.remove('dragover');
-                const file = e.dataTransfer.files[0];
-                if (file) await handleFile(file);
+                if (e.dataTransfer.files.length) await handleFiles(e.dataTransfer.files);
             });
+
+            async function handleFiles(fileList, fromFolder = false) {
+                const files = [...fileList];
+                if (files.length === 1) {
+                    await handleFile(files[0]);
+                    return;
+                }
+                if (!files.length || (!fromFolder && files.some(file => !/\.txt$/i.test(file.name)))) {
+                    alert('多文件导入仅支持 TXT 文件；EPUB 请单独选择');
+                    return;
+                }
+                state._importAbortController?.abort();
+                state._importAbortController = null;
+                cleanupBlobUrls();
+                state.loadToken++;
+                const importController = new AbortController();
+                state._importAbortController = importController;
+                state.txtMode = false;
+                state.txtFiles = null;
+                state.txtChapterCache.clear();
+                state._txtChapterLoading.clear();
+                state.txtBookFingerprint = '';
+                state.renderedUpTo = -1;
+                state.renderedLo = -1;
+                state._renderChain = null;
+                state._chapterLoading = null;
+                try {
+                    const success = await parseTxtFiles(files);
+                    if (success) await openParsedBook();
+                } catch (err) {
+                    if (err.name !== 'AbortError') {
+                        console.error('多 TXT 阅读启动失败:', err);
+                        alert('多 TXT 阅读启动失败：' + err.message);
+                    }
+                } finally {
+                    if (state._importAbortController === importController) state._importAbortController = null;
+                }
+            }
 
             async function handleFile(file) {
                 const lowerName = file.name.toLowerCase();
@@ -3007,29 +3304,50 @@
                     alert('请选择 .epub 或 .txt 格式的文件');
                     return;
                 }
+                state._importAbortController?.abort();
+                state._importAbortController = null;
                 cleanupBlobUrls();
+                state.loadToken++;
+                state.txtMode = false;
+                state.txtFiles = null;
+                state.txtChapterCache.clear();
+                state._txtChapterLoading.clear();
+                state.txtBookFingerprint = '';
                 state.renderedUpTo = -1;
                 state.renderedLo = -1;
                 state._renderChain = null;
                 state._chapterLoading = null;
-                const success = isTxt ? await parseTxt(file) : await parseEpub(file);
-                if (success) {
-                    uploadPage.classList.add('hidden');
-                    readerPage.classList.add('active');
-                    // 进入阅读默认显示侧边栏 dock，稍后自动隐藏
-                    toggleDock(true);
-
-                    // Fix5：从 epub-last-book / marker 恢复进度（顺便修复之前"保存了但从不恢复"的缺失）
-                    const resume = restoreLastProgressIfMatch(state.bookInfo.title, state.bookInfo.author);
-                    const startAt = resume && resume.chapter != null ? resume.chapter : 0;
-                    await loadChapter(startAt);
-
-                    // Fix5：进入阅读 → 立刻写 1 次重型存档 + 启动 20s 定期持久化（关页前大部分进度已经异步落盘，卸载事件不卡）
-                    persistLastBook(true);
-                    startPeriodicPersist();
-
-                    scheduleAutoHideDock();
+                try {
+                    const success = isTxt ? await parseTxt(file) : await parseEpub(file);
+                    if (success) await openParsedBook();
+                } catch (err) {
+                    if (err.name !== 'AbortError') {
+                        console.error('阅读启动失败:', err);
+                        alert('阅读启动失败：' + err.message);
+                    }
                 }
+            }
+
+            async function openParsedBook() {
+                if (state.txtMode && !state.txtFiles) return;
+                if (!state.txtMode && !state.totalChapters) return;
+                const loadToken = state.loadToken;
+                uploadPage.classList.add('hidden');
+                readerPage.classList.add('active');
+                // 进入阅读默认显示侧边栏 dock，稍后自动隐藏
+                toggleDock(true);
+
+                // Fix5：从 epub-last-book / marker 恢复进度（顺便修复之前"保存了但从不恢复"的缺失）
+                const resume = restoreLastProgressIfMatch(state.bookInfo.title, state.bookInfo.author);
+                const startAt = resume && resume.chapter != null ? resume.chapter : 0;
+                await loadChapter(startAt);
+                assertCurrentLoad(loadToken);
+
+                // Fix5：进入阅读 → 立刻写 1 次重型存档 + 启动 20s 定期持久化（关页前大部分进度已经异步落盘，卸载事件不卡）
+                persistLastBook(true);
+                startPeriodicPersist();
+
+                scheduleAutoHideDock();
             }
 
             // ===== Fix5：持久化（重型 epub-last-book 15s 节流 / 轻型 marker 200B）=====
@@ -3047,6 +3365,8 @@
                         chapterTitle: state.chapterTitles[state.currentChapter],
                         totalChapters: state.totalChapters,
                         scrollPositions: state.scrollPositions,
+                        sourceType: state.txtMode ? 'multi-txt' : 'single-book',
+                        bookKey: state.txtMode ? state.txtBookFingerprint : '',
                         timestamp: now,
                     }));
                 } catch (e) {}
@@ -3058,6 +3378,7 @@
                     const ci = state.currentChapter || 0;
                     localStorage.setItem('epub-progress-marker', JSON.stringify({
                         t: String(state.bookInfo.title || '').slice(0, 30),
+                        b: state.txtMode ? state.txtBookFingerprint : '',
                         c: ci,
                         r: typeof state.scrollPositions[ci] === 'number' ? state.scrollPositions[ci] : 0,
                         ts: Date.now(),
@@ -3087,7 +3408,9 @@
                     if (raw) {
                         const info = JSON.parse(raw);
                         // 仅按书名匹配（TXT 一律"未知作者"，author 匹配会导致不同书互相误恢复进度）
-                        if (norm(info.title) === wantTitle) {
+                        const sameMultiTxtBook = !state.txtMode
+                            || (info.sourceType === 'multi-txt' && info.bookKey === state.txtBookFingerprint);
+                        if (norm(info.title) === wantTitle && sameMultiTxtBook) {
                             if (info && typeof info.scrollPositions === 'object' && info.scrollPositions) {
                                 // 只接受 [0,1] 有限数值，损坏存档不污染滚动位置
                                 const clean = {};
@@ -3108,7 +3431,9 @@
                     const mRaw = localStorage.getItem('epub-progress-marker');
                     if (mRaw) {
                         const m = JSON.parse(mRaw);
-                        if (m && norm(m.t) === wantTitle && typeof m.c === 'number') {
+                        const sameMultiTxtBook = !state.txtMode
+                            || m.b === state.txtBookFingerprint;
+                        if (m && norm(m.t) === wantTitle && sameMultiTxtBook && typeof m.c === 'number') {
                             const ci = Math.max(0, Math.min(state.totalChapters - 1, m.c));
                             chapterIdx = ci;
                             if (typeof m.r === 'number') {
