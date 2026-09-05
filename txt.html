@@ -1,0 +1,3368 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>云阅读 - EPUB/TXT阅读器</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"
+            integrity="sha512-XMVd28F1oH/O71fzwBnV7HucLxVwtxf26XV8P4wPk26EDxuGZ91N8bsOttmnomcCD3CS5ZMRL50H0GgOHvegtg=="
+            crossorigin="anonymous" defer></script>
+    <style>
+        :root {
+            --bg: #f5e6c8;
+            --text: #3b2a1a;
+            --text-secondary: #8a765c;
+            --accent: #b4542c;
+            --accent-light: #d4733f;
+            --toolbar-bg: rgba(255, 248, 232, 0.92);
+            --panel-bg: #fff8ec;
+            --border: #e4d4b8;
+            --shadow: rgba(60, 40, 20, 0.12);
+            --progress-bar: #b4542c;
+            --font-size: 18px;
+            --line-height: 1.85;
+            --font-family: 'Georgia', 'SimSun', 'Noto Serif SC', serif;
+            --transition-speed: 0.3s;
+            /* 纸张纹理叠加（极弱） */
+            --paper-texture:
+                radial-gradient(rgba(120, 80, 40, 0.05) 1px, transparent 1px) 0 0 / 3px 3px,
+                radial-gradient(rgba(120, 80, 40, 0.04) 1px, transparent 1px) 1px 1px / 3px 3px;
+        }
+
+        [data-theme="white"] {
+            --bg: #fdfdfd;
+            --text: #2a2a2a;
+            --text-secondary: #7a7a7a;
+            --accent: #c8402e;
+            --accent-light: #e7593f;
+            --toolbar-bg: rgba(255, 255, 255, 0.94);
+            --panel-bg: #fafafa;
+            --border: #e8e8e8;
+            --shadow: rgba(0, 0, 0, 0.08);
+            --progress-bar: #c8402e;
+            --paper-texture:
+                radial-gradient(rgba(0, 0, 0, 0.035) 1px, transparent 1px) 0 0 / 3px 3px;
+        }
+
+        [data-theme="night"] {
+            /* 优化：柔和深蓝灰基底 + 蓝灰强调色（代替原纯黑+刺眼红） */
+            --bg: #181b24;
+            --text: #c6ccd8;
+            --text-secondary: #6f7788;
+            --accent: #6b8aff;
+            --accent-light: #93abff;
+            --toolbar-bg: rgba(30, 34, 46, 0.92);
+            --panel-bg: #222737;
+            --border: #2e3346;
+            --shadow: rgba(0, 0, 0, 0.5);
+            --progress-bar: #6b8aff;
+            --paper-texture:
+                /* 星点/纸纹：极微弱的小颗粒，避免纯平黑 */
+                radial-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px) 0 0 / 3px 3px,
+                radial-gradient(rgba(107, 138, 255, 0.02) 1.4px, transparent 1.4px) 2px 1px / 5px 5px;
+        }
+
+        [data-theme="green"] {
+            --bg: #cce8cf;
+            --text: #273a2b;
+            --text-secondary: #5a7560;
+            --accent: #357a3b;
+            --accent-light: #53a15a;
+            --toolbar-bg: rgba(210, 232, 212, 0.92);
+            --panel-bg: #e1f1e3;
+            --border: #a8c8ac;
+            --shadow: rgba(40, 70, 50, 0.1);
+            --progress-bar: #357a3b;
+            --paper-texture:
+                radial-gradient(rgba(40, 80, 50, 0.05) 1px, transparent 1px) 0 0 / 3px 3px;
+        }
+
+        /* 新增1：羊皮纸怀旧棕（仿旧棕） */
+        [data-theme="parchment"] {
+            --bg: #e8d9b8;
+            --text: #3a2c17;
+            --text-secondary: #7e6642;
+            --accent: #8c5a20;
+            --accent-light: #b07a35;
+            --toolbar-bg: rgba(232, 217, 184, 0.93);
+            --panel-bg: #f3e6c9;
+            --border: #cfb88c;
+            --shadow: rgba(80, 60, 30, 0.14);
+            --progress-bar: #8c5a20;
+            --paper-texture:
+                /* 羊皮纸纤维感：两层不同大小的点 */
+                radial-gradient(rgba(110, 70, 20, 0.06) 1px, transparent 1px) 0 0 / 2px 2px,
+                radial-gradient(rgba(140, 90, 32, 0.04) 1.4px, transparent 1.4px) 1px 0 / 4px 4px;
+        }
+
+        /* 新增2：护眼淡粉（樱花） */
+        [data-theme="pink"] {
+            --bg: #f6e9eb;
+            --text: #3d2a2e;
+            --text-secondary: #876970;
+            --accent: #c3546c;
+            --accent-light: #e07c90;
+            --toolbar-bg: rgba(246, 233, 235, 0.93);
+            --panel-bg: #fdf2f4;
+            --border: #e0c6cb;
+            --shadow: rgba(120, 60, 70, 0.1);
+            --progress-bar: #c3546c;
+            --paper-texture:
+                radial-gradient(rgba(180, 80, 100, 0.045) 1px, transparent 1px) 0 0 / 3px 3px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: var(--font-family);
+            background-color: var(--bg);
+            background-image: var(--paper-texture);
+            color: var(--text);
+            transition: background-color var(--transition-speed), color var(--transition-speed),
+                        background-image var(--transition-speed);
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+        }
+        /* 夜间模式额外暗角渐变（让中心更亮、四角更暗，像阅读灯） */
+        [data-theme="night"] body,
+        html[data-theme="night"] body {
+            background-image:
+                radial-gradient(ellipse at 50% 50%, rgba(30, 35, 50, 0) 50%, rgba(10, 12, 20, 0.45) 100%),
+                var(--paper-texture);
+        }
+
+        /* ========== 上传页面 ========== */
+        #upload-page {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg);
+            z-index: 10;
+            transition: opacity 0.5s, transform 0.5s;
+        }
+        #upload-page.hidden {
+            opacity: 0;
+            pointer-events: none;
+            transform: scale(0.95);
+        }
+
+        .upload-container {
+            text-align: center;
+            max-width: 480px;
+            width: 90%;
+            padding: 40px 30px;
+        }
+        .upload-logo {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 14px;
+            margin-bottom: 20px;
+            color: var(--accent);
+            text-shadow: 2px 2px 4px var(--shadow);
+        }
+        .upload-logo svg { flex: 0 0 auto; }
+        .upload-logo-text {
+            font-size: 40px;
+            font-weight: bold;
+            letter-spacing: 8px;
+        }
+        .upload-title {
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: var(--text);
+            letter-spacing: 4px;
+        }
+        .upload-subtitle {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 36px;
+            letter-spacing: 2px;
+        }
+        .upload-dropzone {
+            border: 2px dashed var(--border);
+            border-radius: 16px;
+            padding: 50px 30px;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: var(--panel-bg);
+            position: relative;
+        }
+        .upload-dropzone:hover,
+        .upload-dropzone.dragover {
+            border-color: var(--accent);
+            background: color-mix(in srgb, var(--panel-bg) 80%, var(--accent) 20%);
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px var(--shadow);
+        }
+        .upload-dropzone .icon {
+            font-size: 52px;
+            margin-bottom: 16px;
+        }
+        .upload-dropzone .text {
+            font-size: 16px;
+            color: var(--text);
+            font-weight: 500;
+        }
+        .upload-dropzone .hint {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 8px;
+        }
+        .upload-dropzone input[type="file"] {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            cursor: pointer;
+        }
+        .upload-footer {
+            margin-top: 24px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            letter-spacing: 1px;
+        }
+
+        /* ========== 阅读器页面（无页眉页脚版） ========== */
+        #reader-page {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            z-index: 5;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.4s;
+        }
+        #reader-page.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .toolbar-btn {
+            background: none;
+            border: none;
+            color: var(--text);
+            font-size: 22px;
+            cursor: pointer;
+            padding: 6px 10px;
+            border-radius: 8px;
+            transition: background 0.2s, transform 0.15s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            min-width: 40px;
+            min-height: 40px;
+        }
+        .toolbar-btn:hover {
+            background: color-mix(in srgb, var(--panel-bg) 70%, var(--text) 10%);
+        }
+        .toolbar-btn:active {
+            transform: scale(0.92);
+        }
+        .toolbar-title {
+            flex: 1;
+            text-align: center;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 15px;
+            font-weight: 500;
+            letter-spacing: 0.5px;
+            color: var(--text);
+        }
+        .toolbar-title .book-name {
+            font-weight: 600;
+        }
+        .toolbar-title .chapter-name {
+            font-size: 12px;
+            color: var(--text-secondary);
+            display: block;
+            margin-top: 1px;
+        }
+
+        /* 内容区域 */
+        #content-area {
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding: 24px 20px 40px;
+            scroll-behavior: smooth;
+            -webkit-overflow-scrolling: touch;
+            cursor: pointer;
+            position: relative;
+        }
+        #content-area::-webkit-scrollbar {
+            width: 4px;
+        }
+        #content-area::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        #content-area::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 4px;
+        }
+
+        #chapter-content {
+            max-width: 680px;
+            margin: 0 auto;
+            font-size: var(--font-size);
+            line-height: var(--line-height);
+            font-family: var(--font-family);
+            color: var(--text);
+            word-wrap: break-word;
+            word-break: break-word;
+            transition: font-size 0.25s, line-height 0.25s, color 0.3s;
+        }
+        #chapter-content h1,
+        #chapter-content h2,
+        #chapter-content h3,
+        #chapter-content h4 {
+            margin: 1.2em 0 0.6em;
+            font-weight: 600;
+            line-height: 1.4;
+        }
+        #chapter-content h1 {
+            font-size: 1.5em;
+            text-align: center;
+            margin-top: 0.3em;
+        }
+        #chapter-content h2 {
+            font-size: 1.3em;
+        }
+        #chapter-content h3 {
+            font-size: 1.15em;
+        }
+        #chapter-content p {
+            margin: 0 0 0.8em;
+            text-indent: 2em;
+            letter-spacing: 0.3px;
+        }
+        #chapter-content p.no-indent {
+            text-indent: 0;
+        }
+        /* ===== TXT L2 长页式排版：样式化分隔符 + 章末注脚 ===== */
+        #chapter-content .txt-sep {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            margin: 1.6em auto;
+            color: var(--text-secondary);
+        }
+        #chapter-content .txt-sep::before,
+        #chapter-content .txt-sep::after {
+            content: "";
+            width: 36px;
+            height: 1px;
+            background: currentColor;
+            opacity: 0.45;
+        }
+        #chapter-content .txt-sep i {
+            width: 4px;
+            height: 4px;
+            border-radius: 50%;
+            background: currentColor;
+            opacity: 0.45;
+        }
+        #chapter-content .chapter-end {
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 0.85em;
+            letter-spacing: 0.35em;
+            text-indent: 0;
+            margin: 3em 0 1.5em;
+            opacity: 0.8;
+        }
+        #chapter-content img {
+            max-width: 100%;
+            max-height: 65vh;          /* 防止大图/封面占满整屏，给文字留出空间 */
+            width: auto;
+            height: auto;
+            object-fit: contain;
+            border-radius: 8px;
+            margin: 14px auto;
+            display: block;
+            box-shadow: 0 2px 12px color-mix(in srgb, var(--shadow) 60%, transparent);
+        }
+        /* 防止无缝模式下 chapter-inner/block 内的横向溢出（宽图） */
+        .chapter-block,
+        .chapter-inner {
+            max-width: 100%;
+            overflow-wrap: break-word;
+            word-break: break-word;
+        }
+        #chapter-content blockquote {
+            margin: 1em 0;
+            padding: 0.6em 1em;
+            border-left: 3px solid var(--accent);
+            background: color-mix(in srgb, var(--panel-bg) 60%, transparent);
+            font-style: italic;
+        }
+        #chapter-content a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+        #chapter-content hr {
+            border: none;
+            border-top: 1px solid var(--border);
+            margin: 1.5em auto;
+            width: 40%;
+        }
+        #chapter-content pre {
+            background: color-mix(in srgb, var(--panel-bg) 70%, transparent);
+            padding: 12px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-size: 0.9em;
+            margin: 1em 0;
+        }
+        #chapter-content code {
+            font-family: 'Courier New', monospace;
+            background: color-mix(in srgb, var(--panel-bg) 70%, transparent);
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-size: 0.9em;
+        }
+
+        /* ========== 目录侧边栏 ========== */
+        #toc-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.4);
+            z-index: 60;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.35s;
+        }
+        #toc-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        #toc-sidebar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            width: 300px;
+            max-width: 80vw;
+            background: var(--panel-bg);
+            z-index: 70;
+            transform: translateX(-100%);
+            transition: transform 0.35s cubic-bezier(0.22, 0.61, 0.36, 1);
+            display: flex;
+            flex-direction: column;
+            box-shadow: 2px 0 20px var(--shadow);
+        }
+        #toc-sidebar.active {
+            transform: translateX(0);
+        }
+        .toc-header {
+            padding: 18px 20px 14px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
+        }
+        .toc-header h3 {
+            font-size: 17px;
+            font-weight: 600;
+            letter-spacing: 2px;
+            color: var(--text);
+        }
+        .toc-close-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 20px;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 6px;
+            transition: background 0.2s;
+        }
+        .toc-close-btn:hover {
+            background: color-mix(in srgb, var(--panel-bg) 70%, var(--text) 10%);
+        }
+        .toc-book-info {
+            padding: 14px 20px;
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+        .toc-book-info .toc-book-name {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text);
+        }
+        .toc-book-info .toc-book-author {
+            /* 目录作者名不显示（隐藏占位，保持 DOM 引用兼容） */
+            display: none;
+        }
+        .toc-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 6px 0;
+            -webkit-overflow-scrolling: touch;
+        }
+        .toc-list::-webkit-scrollbar {
+            width: 3px;
+        }
+        .toc-list::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 3px;
+        }
+        .toc-item {
+            padding: 11px 20px;
+            cursor: pointer;
+            font-size: 14px;
+            color: var(--text);
+            transition: background 0.2s, color 0.2s;
+            border-left: 3px solid transparent;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            letter-spacing: 0.3px;
+        }
+        .toc-item:hover {
+            background: color-mix(in srgb, var(--panel-bg) 70%, var(--accent) 10%);
+        }
+        .toc-item.active {
+            border-left-color: var(--accent);
+            background: color-mix(in srgb, var(--panel-bg) 70%, var(--accent) 12%);
+            font-weight: 600;
+            color: var(--accent);
+        }
+        .toc-item .toc-index {
+            font-size: 11px;
+            color: var(--text-secondary);
+            min-width: 28px;
+            text-align: right;
+            flex-shrink: 0;
+            font-weight: 400;
+        }
+        .toc-item.active .toc-index {
+            color: var(--accent);
+        }
+        .toc-item .toc-title {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* ========== 设置面板 ========== */
+        #settings-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.4);
+            z-index: 60;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.35s;
+        }
+        #settings-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        #settings-panel {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: var(--panel-bg);
+            z-index: 70;
+            transform: translateY(100%);
+            transition: transform 0.4s cubic-bezier(0.22, 0.61, 0.36, 1);
+            border-radius: 20px 20px 0 0;
+            box-shadow: 0 -4px 30px var(--shadow);
+            padding: 18px 22px max(24px, env(safe-area-inset-bottom));
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+        #settings-panel.active {
+            transform: translateY(0);
+        }
+        .settings-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 18px;
+        }
+        .settings-header h3 {
+            font-size: 17px;
+            font-weight: 600;
+            letter-spacing: 2px;
+            color: var(--text);
+        }
+        .settings-close-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 20px;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 6px;
+        }
+        .settings-section {
+            margin-bottom: 18px;
+        }
+        .settings-section label {
+            display: block;
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+            letter-spacing: 1px;
+            font-weight: 500;
+        }
+        .settings-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .font-size-control {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            background: var(--bg);
+            border-radius: 10px;
+            padding: 6px 14px;
+            border: 1px solid var(--border);
+        }
+        .font-size-btn {
+            background: none;
+            border: none;
+            color: var(--text);
+            font-size: 18px;
+            cursor: pointer;
+            padding: 4px 10px;
+            border-radius: 6px;
+            transition: background 0.2s, transform 0.15s;
+            font-weight: 600;
+        }
+        .font-size-btn:hover {
+            background: color-mix(in srgb, var(--panel-bg) 70%, var(--text) 10%);
+        }
+        .font-size-btn:active {
+            transform: scale(0.9);
+        }
+        .font-size-display {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--accent);
+            min-width: 36px;
+            text-align: center;
+        }
+        .theme-options {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .theme-option {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: all 0.25s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            color: #333;
+            font-weight: 500;
+            letter-spacing: 0;
+        }
+        .theme-option:hover {
+            transform: scale(1.08);
+        }
+        .theme-option.active {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+        }
+        .theme-option.theme-warm {
+            background: #f5e6c8;
+            color: #3b2a1a;
+        }
+        .theme-option.theme-white {
+            background: #ffffff;
+            color: #2c2c2c;
+            border-color: #ddd;
+        }
+        .theme-option.theme-parchment {
+            background: #e8d9b8;
+            color: #3a2c17;
+            border-color: #c9b284;
+        }
+        .theme-option.theme-pink {
+            background: #f6e9eb;
+            color: #c3546c;
+            border-color: #e0c6cb;
+        }
+        .theme-option.theme-night {
+            background: #1a1a1a;
+            color: #b8b8b8;
+        }
+        .theme-option.theme-green {
+            background: #c8e6c8;
+            color: #2a3b2a;
+        }
+        .theme-option.theme-custom {
+            background: var(--bg);
+            color: var(--text);
+            border-color: var(--border);
+        }
+        /* 自定义主题：所有配色变量由 applySettingsToContent 根据 customBg 动态写入 :root */
+        [data-theme="custom"] {
+            /* 占位，实际值由 JS 设置；若 JS 未注入则回退到暖黄默认 */
+        }
+        .font-family-options {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .font-option {
+            padding: 8px 14px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--bg);
+            cursor: pointer;
+            font-size: 13px;
+            color: var(--text);
+            transition: all 0.2s;
+            letter-spacing: 0.5px;
+            font-family: inherit;
+        }
+        .font-option:hover {
+            border-color: var(--accent);
+        }
+        .font-option.active {
+            border-color: var(--accent);
+            background: color-mix(in srgb, var(--accent) 12%, var(--bg));
+            color: var(--accent);
+            font-weight: 600;
+        }
+        .line-height-options {
+            display: flex;
+            gap: 8px;
+        }
+        .line-height-option {
+            padding: 8px 14px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--bg);
+            cursor: pointer;
+            font-size: 13px;
+            color: var(--text);
+            transition: all 0.2s;
+            letter-spacing: 0.5px;
+            font-family: inherit;
+        }
+        .line-height-option:hover {
+            border-color: var(--accent);
+        }
+        .line-height-option.active {
+            border-color: var(--accent);
+            background: color-mix(in srgb, var(--accent) 12%, var(--bg));
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        /* ========== 章节切换动画 ========== */
+        .chapter-transition {
+            animation: chapterFadeIn 0.45s ease;
+        }
+        @keyframes chapterFadeIn {
+            0% {
+                opacity: 0;
+                transform: translateY(18px);
+            }
+            100% {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* ========== 无缝长阅读章节分隔符 ========== */
+        .chapter-divider {
+            text-align: center;
+            margin: 40px auto 30px;
+            padding: 20px 0;
+            border-top: 1px dashed var(--border);
+            border-bottom: 1px dashed var(--border);
+            color: var(--text-secondary);
+            font-size: 13px;
+            letter-spacing: 4px;
+            position: relative;
+            max-width: 400px;
+        }
+        .chapter-divider .divider-title {
+            display: inline-block;
+            background: var(--bg);
+            padding: 0 16px;
+            position: relative;
+            font-weight: 500;
+            top: -1px;
+        }
+        .chapter-block {
+            scroll-margin-top: 20px;
+        }
+        .chapter-block .chapter-heading {
+            font-size: 1.4em;
+            font-weight: 600;
+            text-align: center;
+            margin: 0.4em 0 1em;
+            line-height: 1.4;
+            color: var(--text);
+        }
+
+        /* ========== 点击区域闪烁反馈（长页式） ========== */
+        .tap-feedback {
+            position: fixed;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: color-mix(in srgb, var(--text) 12%, transparent);
+            pointer-events: none;
+            z-index: 80;
+            animation: tapFade 0.45s ease forwards;
+            transform: translate(-50%, -50%);
+        }
+        @keyframes tapFade {
+            0%   { opacity: 0.8; transform: translate(-50%, -50%) scale(0.6); }
+            100% { opacity: 0;   transform: translate(-50%, -50%) scale(1.4); }
+        }
+
+        /* ========== 响应式 ========== */
+        @media (max-width: 480px) {
+            #content-area {
+                padding: 18px 14px 30px;
+            }
+            #chapter-content {
+                font-size: calc(var(--font-size) - 1px);
+            }
+            .toolbar-title {
+                font-size: 13px;
+            }
+            .toolbar-title .chapter-name {
+                font-size: 11px;
+            }
+            #toc-sidebar {
+                width: 260px;
+                max-width: 85vw;
+            }
+            .upload-logo {
+                gap: 10px;
+            }
+            .upload-logo svg {
+                width: 42px;
+                height: 42px;
+            }
+            .upload-logo-text {
+                font-size: 30px;
+                letter-spacing: 6px;
+            }
+            .upload-title {
+                font-size: 22px;
+            }
+        }
+        @media (min-width: 768px) {
+            #content-area {
+                padding: 32px 40px 50px;
+            }
+            #chapter-content {
+                max-width: 720px;
+            }
+        }
+        @media (min-width: 1024px) {
+            #chapter-content {
+                max-width: 760px;
+            }
+            #content-area {
+                padding: 40px 60px 60px;
+            }
+        }
+
+        /* 加载动画 */
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+        }
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+        #loading-indicator {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 200;
+            background: var(--panel-bg);
+            padding: 20px 30px;
+            border-radius: 14px;
+            box-shadow: 0 8px 30px var(--shadow);
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+            font-size: 14px;
+            color: var(--text);
+            letter-spacing: 1px;
+        }
+        #loading-indicator.active {
+            display: flex;
+        }
+
+        /* 章节间过渡遮罩 */
+        #chapter-loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--bg);
+            z-index: 90;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.25s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            color: var(--text-secondary);
+            letter-spacing: 2px;
+        }
+        #chapter-loading-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        /* ============================================================
+           长页式 · 右侧悬浮侧边栏（竖排图标按钮）
+           ============================================================ */
+        .sidebar-dock {
+            position: fixed;
+            right: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            z-index: 50;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 8px;
+            background: var(--toolbar-bg);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            box-shadow: 0 6px 24px var(--shadow);
+            transition: opacity .32s ease, transform .32s ease, right .32s ease;
+            will-change: transform, opacity;
+        }
+        /* 点击中区/空闲时，侧边栏可整体隐藏（沉浸式） */
+        body.dock-hidden .sidebar-dock {
+            opacity: 0;
+            transform: translateY(-50%) translateX(16px);
+            pointer-events: none;
+        }
+
+        .dock-item {
+            width: 50px;
+            height: 54px;
+            background: none;
+            border: none;
+            border-radius: 10px;
+            color: var(--text);
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 2px;
+            padding: 4px 2px;
+            transition: background .2s, transform .15s, color .2s;
+            font-family: inherit;
+            user-select: none;
+        }
+        .dock-item .dock-icon {
+            font-size: 22px;
+            line-height: 1;
+            pointer-events: none;
+            filter: drop-shadow(0 1px 0 color-mix(in srgb, var(--panel-bg) 50%, transparent));
+        }
+        .dock-item .dock-label {
+            font-size: 10.5px;
+            color: var(--text-secondary);
+            letter-spacing: 1px;
+            pointer-events: none;
+            transition: color .2s;
+        }
+        .dock-item:hover {
+            background: color-mix(in srgb, var(--panel-bg) 70%, var(--accent) 12%);
+            color: var(--accent);
+        }
+        .dock-item:hover .dock-label {
+            color: var(--accent);
+        }
+        .dock-item:active {
+            transform: scale(0.92);
+        }
+        /* 活跃态：夜间模式激活时用 accent 色高亮月亮 */
+        .dock-item.is-active {
+            background: color-mix(in srgb, var(--accent) 14%, var(--panel-bg));
+            color: var(--accent);
+        }
+        .dock-item.is-active .dock-label {
+            color: var(--accent);
+            font-weight: 600;
+        }
+        /* dock 分隔线（可在按钮间插入） */
+        .dock-divider {
+            width: 60%;
+            height: 1px;
+            background: color-mix(in srgb, var(--border) 80%, transparent);
+            margin: 2px 0;
+        }
+
+        /* 夜间模式给 dock 加一个极弱的发光（经典阅读器风） */
+        [data-theme="night"] .sidebar-dock {
+            box-shadow: 0 6px 26px rgba(0, 0, 0, 0.55),
+                        0 0 0 1px color-mix(in srgb, var(--accent) 10%, transparent);
+        }
+
+        /* 小屏（手机）下：把侧边栏 dock 缩小半透明贴边 */
+        @media (max-width: 640px) {
+            .sidebar-dock {
+                right: 8px;
+                padding: 10px 6px;
+                gap: 8px;
+                border-radius: 12px;
+            }
+            .dock-item {
+                width: 44px;
+                height: 48px;
+            }
+            .dock-item .dock-icon { font-size: 20px; }
+            .dock-item .dock-label { font-size: 9.5px; }
+        }
+
+    </style>
+</head>
+<body>
+
+    <!-- ==================== 上传页面 ==================== -->
+    <div id="upload-page">
+        <div class="upload-container">
+            <div class="upload-logo" aria-label="云阅读">
+                <svg viewBox="0 0 64 64" width="56" height="56" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <!-- 打开的书：左右两页 + 中间书脊 + 顶部装饰弧线 -->
+                    <path d="M6 50  V16  C 18 14, 26 13, 32 14  C 38 13, 46 14, 58 16  V50  C 46 49, 38 47.5, 32 46  C 26 47.5, 18 49, 6 50 Z"/>
+                    <line x1="32" y1="15" x2="32" y2="46"/>
+                    <path d="M18 25  L 28 26  L 28 22  L 30 22" opacity="0.7"/>
+                    <path d="M36 22  L 46 22  L 46 26  L 36 26" opacity="0.7"/>
+                    <path d="M17 33  L 28 33" opacity="0.55"/>
+                    <path d="M36 33  L 47 33" opacity="0.55"/>
+                    <path d="M17 39  L 26 39" opacity="0.55"/>
+                    <path d="M36 39  L 47 39" opacity="0.55"/>
+                </svg>
+                <span class="upload-logo-text">云阅读</span>
+            </div>
+            <div class="upload-title">EPUB / TXT 阅读器</div>
+            <div class="upload-subtitle">上传你的电子书，享受沉浸阅读体验</div>
+            <div class="upload-dropzone" id="dropzone">
+                <div class="icon" aria-hidden="true">
+                    <svg viewBox="0 0 64 64" width="64" height="64" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <!-- 上传框：虚线方框 + 向上箭头 + 小底座 -->
+                        <rect x="8" y="20" width="48" height="36" rx="3" ry="3" stroke-dasharray="4 4"/>
+                        <polyline points="24,38  32,28  40,38" />
+                        <line x1="32" y1="28" x2="32" y2="48"/>
+                        <line x1="14" y1="58" x2="50" y2="58" />
+                    </svg>
+                </div>
+                <div class="text">点击或拖拽上传 EPUB / TXT 文件</div>
+                <div class="hint">支持 .epub · .txt 格式 · TXT 自动识别编码与章节</div>
+                <input type="file" id="file-input" accept=".epub,.txt" />
+            </div>
+            <div class="upload-footer">— 支持章节导航 · 多主题 · 进度记忆 —</div>
+        </div>
+    </div>
+
+    <!-- ==================== 阅读器页面（无页眉页脚 + 右侧侧边栏） ==================== -->
+    <div id="reader-page">
+
+        <!-- 内容区域（全屏沉浸阅读，独立产生滚动） -->
+        <div id="content-area">
+            <div id="chapter-content"></div>
+        </div>
+
+        <!-- 长页式右侧悬浮侧边栏（目录/夜间/设置/书架/顶部） -->
+        <aside class="sidebar-dock" id="sidebar-dock" aria-label="阅读工具栏">
+            <button class="dock-item" id="dock-toc" title="目录 (T)">
+                <!-- 目录：三条横线 -->
+                <svg class="dock-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <line x1="4" y1="7"  x2="20" y2="7" />
+                    <line x1="4" y1="12" x2="20" y2="12"/>
+                    <line x1="4" y1="17" x2="17" y2="17"/>
+                </svg>
+                <span class="dock-label">目录</span>
+            </button>
+            <button class="dock-item" id="dock-night" title="夜间模式 (N)">
+                <!-- 夜间：默认显示月亮（点击切换太阳由 JS 控制） -->
+                <svg class="dock-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M20 14.5A8 8 0 0 1 9.5 4 7 7 0 1 0 20 14.5z"/>
+                </svg>
+                <span class="dock-label">夜间</span>
+            </button>
+            <button class="dock-item" id="dock-settings" title="阅读设置">
+                <!-- 设置：齿轮 -->
+                <svg class="dock-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="3"/>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                </svg>
+                <span class="dock-label">设置</span>
+            </button>
+            <div class="dock-divider"></div>
+            <button class="dock-item" id="dock-home" title="返回书架">
+                <!-- 书架：打开的书 -->
+                <svg class="dock-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M2 3h7a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                    <path d="M22 3h-7a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h8z"/>
+                </svg>
+                <span class="dock-label">书架</span>
+            </button>
+            <button class="dock-item" id="dock-top" title="回到顶部">
+                <!-- 顶部：向上箭头 -->
+                <svg class="dock-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <line x1="12" y1="19" x2="12" y2="5"/>
+                    <polyline points="5 12 12 5 19 12"/>
+                </svg>
+                <span class="dock-label">顶部</span>
+            </button>
+        </aside>
+    </div>
+
+    <!-- 目录遮罩和侧边栏 -->
+    <div id="toc-overlay"></div>
+    <div id="toc-sidebar">
+        <div class="toc-header">
+            <h3>📋 目录</h3>
+            <button class="toc-close-btn" id="btn-toc-close">✕</button>
+        </div>
+        <div class="toc-book-info">
+            <div class="toc-book-name" id="toc-book-name">书名</div>
+            <div class="toc-book-author" id="toc-book-author">作者</div>
+        </div>
+        <div class="toc-list" id="toc-list"></div>
+    </div>
+
+    <!-- 设置遮罩和面板 -->
+    <div id="settings-overlay"></div>
+    <div id="settings-panel">
+        <div class="settings-header">
+            <h3>⚙ 阅读设置</h3>
+            <button class="settings-close-btn" id="btn-settings-close">✕</button>
+        </div>
+        <div class="settings-section">
+            <label>字体大小</label>
+            <div class="font-size-control">
+                <button class="font-size-btn" id="font-size-minus">A−</button>
+                <span class="font-size-display" id="font-size-display">18px</span>
+                <button class="font-size-btn" id="font-size-plus">A+</button>
+            </div>
+        </div>
+        <div class="settings-section">
+            <label>阅读主题</label>
+            <div class="theme-options" id="theme-options">
+                <div class="theme-option theme-warm" data-theme="warm" title="暖黄">暖</div>
+                <div class="theme-option theme-white" data-theme="white" title="白色">白</div>
+                <div class="theme-option theme-green" data-theme="green" title="护眼绿">绿</div>
+                <div class="theme-option theme-parchment" data-theme="parchment" title="羊皮纸旧">旧</div>
+                <div class="theme-option theme-pink" data-theme="pink" title="护眼淡粉">粉</div>
+                <div class="theme-option theme-night" data-theme="night" title="夜间">夜</div>
+                <div class="theme-option theme-custom" data-theme="custom" title="自定义背景色">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18c1.2 0 2-.8 2-2 0-1.3-.9-1.7-.9-2.8 0-.9.8-1.6 1.7-1.6H17a4 4 0 0 0 4-4A9 9 0 0 0 12 3z"/><circle cx="8" cy="11" r="1.1" fill="currentColor" stroke="none"/><circle cx="12" cy="8.5" r="1.1" fill="currentColor" stroke="none"/><circle cx="16" cy="11" r="1.1" fill="currentColor" stroke="none"/></svg>
+                </div>
+                <input type="color" id="custom-bg-picker" style="display:none" value="#e8d9b8" />
+            </div>
+        </div>
+        <div class="settings-section">
+            <label>字体</label>
+            <div class="font-family-options" id="font-family-options">
+                <button class="font-option active" data-font="serif">宋体</button>
+                <button class="font-option" data-font="sans">黑体</button>
+                <button class="font-option" data-font="kai">楷体</button>
+                <button class="font-option" data-font="system">系统</button>
+            </div>
+        </div>
+        <div class="settings-section">
+            <label>行距</label>
+            <div class="line-height-options" id="line-height-options">
+                <button class="line-height-option" data-lh="1.6">紧凑</button>
+                <button class="line-height-option active" data-lh="1.8">标准</button>
+                <button class="line-height-option" data-lh="2.2">宽松</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 加载指示器 -->
+    <div id="loading-indicator">
+        <div class="loading-spinner"></div>
+        <span>正在加载...</span>
+    </div>
+
+    <!-- 章节切换遮罩 -->
+    <div id="chapter-loading-overlay">加载中...</div>
+
+    <script>
+        (function() {
+            // ==================== 全局状态 ====================
+            const state = {
+                zip: null,
+                bookInfo: {
+                    title: '未知书名',
+                    author: '未知作者',
+                    language: '',
+                },
+                spine: [], // 章节路径数组
+                manifest: {}, // id -> {href, mediaType}
+                opfDir: '', // OPF文件所在目录
+                chapters: [], // 章节HTML内容缓存
+                chapterTitles: [], // 章节标题
+                currentChapter: 0, // 当前章节索引（无缝模式下是首个未滚完的）
+                totalChapters: 0,
+                settings: {
+                    fontSize: 18,
+                    theme: 'warm',
+                    fontFamily: 'serif',
+                    lineHeight: 1.8,
+                    customBg: null, // 自定义主题的背景色（#rrggbb），由 computeCustomTheme 推导其余配色
+                },
+                scrollPositions: {}, // 每章的滚动位置 (0-1)
+                isToolbarVisible: true,
+                isTocOpen: false,
+                isSettingsOpen: false,
+                blobUrls: [], // 存储所有blob URL以便清理
+                lastSaveTime: 0,
+                // 长页式交互新增状态
+                seamlessMode: true,        // 无缝长章合并模式
+                renderedUpTo: -1,          // 当前 DOM 窗口已渲染到的章节索引（含）
+                renderedLo: -1,            // 当前 DOM 窗口起始章节索引（含）
+                txtParts: null,            // TXT 分章结果（{title, lines}[]），章节 HTML 按需惰性生成
+                _geomDirty: false,         // 章节块几何缓存（dataset.top/height）是否过期需重测
+                _renderChain: null,        // 无缝渲染串行锁（Promise 链）
+                _chapterLoading: null,     // 章节加载去重（index -> Promise）
+                autoHideTimer: null,       // 工具栏自动隐藏定时器
+                isDraggingProgress: false, // 是否正在拖拽进度条
+                swipeThresholdX: 60,       // 左右手势触发阈值（px）
+                swipeThresholdY: 60,       // 上下手势阈值
+                touchStart: null,          // { x, y, time }
+                ignoreClick: false,        // 手势触发后忽略后续 click
+                dockPinned: false,         // Tab 固定：true 时侧边栏一直显示，不自动隐藏
+            };
+
+            // ==================== DOM引用 ====================
+            const $ = (sel) => document.querySelector(sel);
+            const $$ = (sel) => document.querySelectorAll(sel);
+
+            const uploadPage = $('#upload-page');
+            const readerPage = $('#reader-page');
+            const fileInput = $('#file-input');
+            const dropzone = $('#dropzone');
+            const contentArea = $('#content-area');
+            const chapterContent = $('#chapter-content');
+            const tocOverlay = $('#toc-overlay');
+            const tocSidebar = $('#toc-sidebar');
+            const tocList = $('#toc-list');
+            const tocBookName = $('#toc-book-name');
+            const tocBookAuthor = $('#toc-book-author');
+            const settingsOverlay = $('#settings-overlay');
+            const settingsPanel = $('#settings-panel');
+            const loadingIndicator = $('#loading-indicator');
+            const chapterLoadingOverlay = $('#chapter-loading-overlay');
+            const fontSizeDisplay = $('#font-size-display');
+
+            // 长页式右侧侧边栏
+            const dockToc = $('#dock-toc');
+            const dockNight = $('#dock-night');
+            const dockSettings = $('#dock-settings');
+            const dockHome = $('#dock-home');
+            const dockTop = $('#dock-top');
+
+            // ==================== 字体映射 ====================
+            const fontFamilyMap = {
+                serif: "'Georgia', 'SimSun', 'Noto Serif SC', 'STSong', serif",
+                sans: "'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', 'Helvetica Neue', sans-serif",
+                kai: "'KaiTi', 'STKaiti', 'Kaiti SC', 'Noto Serif SC', serif",
+                system: "system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif",
+            };
+
+            // ==================== 工具函数 ====================
+            function showLoading(show, text) {
+                if (show) {
+                    loadingIndicator.querySelector('span').textContent = text || '正在加载...';
+                    loadingIndicator.classList.add('active');
+                } else {
+                    loadingIndicator.classList.remove('active');
+                }
+            }
+
+            function showChapterLoading(show) {
+                if (show) {
+                    chapterLoadingOverlay.classList.add('active');
+                } else {
+                    chapterLoadingOverlay.classList.remove('active');
+                }
+            }
+
+            function debounce(fn, delay) {
+                let timer;
+                return function(...args) {
+                    clearTimeout(timer);
+                    timer = setTimeout(() => fn.apply(this, args), delay);
+                };
+            }
+
+            // 长页式：点击水波纹反馈
+            function showTapFeedback(x, y) {
+                const el = document.createElement('div');
+                el.className = 'tap-feedback';
+                el.style.left = x + 'px';
+                el.style.top = y + 'px';
+                document.body.appendChild(el);
+                setTimeout(() => el.remove(), 500);
+            }
+
+            function getPathDir(path) {
+                const idx = path.lastIndexOf('/');
+                return idx >= 0 ? path.substring(0, idx + 1) : '';
+            }
+
+            function resolveRelative(basePath, relPath) {
+                // 处理相对路径
+                if (relPath.startsWith('/')) return relPath.substring(1);
+                const baseDir = getPathDir(basePath);
+                const combined = baseDir + relPath;
+                // 处理 ../
+                const parts = combined.split('/');
+                const result = [];
+                for (const part of parts) {
+                    if (part === '..') {
+                        result.pop();
+                    } else if (part === '.' || part === '') {
+                        // skip
+                    } else {
+                        result.push(part);
+                    }
+                }
+                return result.join('/');
+            }
+
+            // 生成 Blob URL，同时记录章节索引（用于滚动窗口式内存回收）
+            function generateBlobUrl(data, mimeType, chapterIdx = -1) {
+                const blob = new Blob([data], { type: mimeType || 'application/octet-stream' });
+                const url = URL.createObjectURL(blob);
+                state.blobUrls.push({ url, chapterIdx });
+                return url;
+            }
+
+            function cleanupBlobUrls() {
+                state.blobUrls.forEach(entry => {
+                    try { URL.revokeObjectURL(entry.url); } catch (e) {}
+                });
+                state.blobUrls = [];
+            }
+
+            // Blob 滚动窗口回收：仅保留 [lo, hi] 范围内章节的图片 Blob，超出的 revoke 释放内存
+            function cleanupBlobWindow(lo, hi) {
+                if (!Array.isArray(state.blobUrls) || state.blobUrls.length === 0) return;
+                const keep = [];
+                const droppedChapters = new Set();
+                for (const entry of state.blobUrls) {
+                    const ci = entry.chapterIdx;
+                    const outOfWindow = ci >= 0 && (ci < lo || ci > hi);
+                    if (outOfWindow) {
+                        try { URL.revokeObjectURL(entry.url); } catch (e) {}
+                        droppedChapters.add(ci);
+                    } else {
+                        keep.push(entry);
+                    }
+                }
+                state.blobUrls = keep;
+                // 被回收章节的 HTML 缓存中含已失效的 blob: URL，丢弃缓存；
+                // 下次渲染到该章时从 zip 重新解压处理（TXT 无 blob 条目，不受影响）
+                droppedChapters.forEach(ci => {
+                    if (state.chapters[ci] != null) state.chapters[ci] = null;
+                });
+            }
+
+            /**
+             * 从Zip中读取文件，兼容路径URL编码（如%20）的情况。
+             * @param {JSZip} zip - JSZip实例
+             * @param {string} path - 原始路径（可能包含URL编码）
+             * @param {'string'|'arraybuffer'} type - 返回类型
+             * @returns {Promise<string|ArrayBuffer|null>}
+             */
+            async function getZipFileContent(zip, path, type = 'string') {
+                const tryRead = async (actualPath) => {
+                    const file = zip.file(actualPath);
+                    if (file) {
+                        return type === 'arraybuffer' ? await file.async('arraybuffer') : await file.async('string');
+                    }
+                    return null;
+                };
+
+                // 1. 直接尝试原始路径
+                let result = await tryRead(path);
+                if (result !== null) return result;
+
+                // 2. 尝试 decodeURIComponent 解码
+                try {
+                    const decoded = decodeURIComponent(path);
+                    if (decoded !== path) {
+                        result = await tryRead(decoded);
+                        if (result !== null) return result;
+                    }
+                } catch (e) {
+                    // 解码失败，继续尝试其他方式
+                }
+
+                // 3. 尝试将 %20 等替换为空格（通用处理）
+                const spacePath = path.replace(/%20/gi, ' ');
+                if (spacePath !== path) {
+                    result = await tryRead(spacePath);
+                    if (result !== null) return result;
+                }
+
+                return null;
+            }
+
+            function extractTitleFromHtml(htmlContent) {
+                // 从HTML中提取标题
+                const doc = new DOMParser().parseFromString(htmlContent, 'text/html');
+                const h1 = doc.querySelector('h1');
+                if (h1 && h1.textContent.trim()) return h1.textContent.trim();
+                const h2 = doc.querySelector('h2');
+                if (h2 && h2.textContent.trim()) return h2.textContent.trim();
+                const h3 = doc.querySelector('h3');
+                if (h3 && h3.textContent.trim()) return h3.textContent.trim();
+                const title = doc.querySelector('title');
+                if (title && title.textContent.trim()) return title.textContent.trim();
+                return null;
+            }
+
+            // ==================== TXT解析（新增：与EPUB并列，产出相同的 state.chapters/chapterTitles 结构） ====================
+            // 广告/干扰行模板（逐行整行匹配才剔除；纯分隔线不放这里——L2 会转成样式化分隔符）
+            const TXT_AD_PATTERNS = [
+                /最新章节|最快更新|首发于|本书来自|转载来自|盗版必究/,
+                /(本作品由.{1,24}(提供|首发|制作))|[\w\u4e00-\u9fa5]{2,10}中文网/,
+                /^(求收藏|求推荐|求月票|求订阅|求鲜花|求打赏|求支持)[！!。，,.\s]*$/,
+                /^[（(]?(未完待续|本章完|本章结束|待续)[）)]?[。.！!]*$/,
+                /^本章字数[:：]/,                                          // 网文平台导出残留
+                /^[-—=]{2,}[^-—=]{2,16}[-—=]{2,}$/,                        // ------章节内容开始------- 类装饰行（中间必须含非横线文字，纯分隔线保留给L2转sep）
+                /www\.[\w-]+\.(com|net|org|cc|info|la)|https?:\/\/\S+/i,
+            ];
+
+            function normalizeDigits(s) {
+                return String(s).replace(/[０-９]/g, d => String.fromCharCode(d.charCodeAt(0) - 0xFEE0));
+            }
+
+            // 中文数字（含大写）→ 阿拉伯数字，用于章节序号单调性校验
+            function cnNumToInt(cnRaw) {
+                const cn = normalizeDigits(String(cnRaw)).trim();
+                if (/^\d{1,7}$/.test(cn)) return parseInt(cn, 10);
+                const DIGIT = { '零':0,'〇':0,'一':1,'二':2,'两':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,
+                    '壹':1,'贰':2,'貳':2,'叁':3,'參':3,'肆':4,'伍':5,'陆':6,'陸':6,'柒':7,'捌':8,'玖':9 };
+                const UNIT = { '十':10,'拾':10,'百':100,'佰':100,'千':1000,'仟':1000 };
+                let total = 0, section = 0, num = 0;
+                for (const ch of cn) {
+                    if (ch in DIGIT) { num = DIGIT[ch]; }
+                    else if (ch in UNIT) { section += (num || 1) * UNIT[ch]; num = 0; }
+                    else if (ch === '万' || ch === '萬') { total = (total + section + num) * 10000; section = 0; num = 0; }
+                    else if (ch === '亿' || ch === '億') { total = (total + section + num) * 100000000; section = 0; num = 0; }
+                }
+                return total + section + num;
+            }
+
+            // 编码探测：BOM → UTF-8 严格解码 → GB18030 兜底（浏览器 TextDecoder 原生支持，零依赖）
+            function detectAndDecodeText(buffer) {
+                const bytes = new Uint8Array(buffer);
+                if (bytes.length >= 3 && bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF)
+                    return { text: new TextDecoder('utf-8').decode(bytes.subarray(3)), enc: 'UTF-8(BOM)' };
+                if (bytes.length >= 2 && bytes[0] === 0xFF && bytes[1] === 0xFE)
+                    return { text: new TextDecoder('utf-16le').decode(bytes.subarray(2)), enc: 'UTF-16LE' };
+                if (bytes.length >= 2 && bytes[0] === 0xFE && bytes[1] === 0xFF)
+                    return { text: new TextDecoder('utf-16be').decode(bytes.subarray(2)), enc: 'UTF-16BE' };
+                try { return { text: new TextDecoder('utf-8', { fatal: true }).decode(bytes), enc: 'UTF-8' }; } catch (e) {}
+                try { return { text: new TextDecoder('gb18030').decode(bytes), enc: 'GB18030/GBK' }; } catch (e) {}
+                return { text: new TextDecoder().decode(bytes), enc: '默认' };
+            }
+
+            // 清洗：去控制字符、统一换行、逐行剔除广告。
+            // L2：仅去行尾空白与半角前导空白，保留全角空格 \u3000 前缀作为"段首缩进"标记（供 modeB 分段）
+            function txtCleanRaw(text) {
+                text = text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u2028\u2029\uFEFF]/g, '');
+                text = text.replace(/\r\n?/g, '\n');
+                const out = [];
+                for (const raw of text.split('\n')) {
+                    const line = raw.replace(/^[\t ]+/, '').replace(/\s+$/, '');
+                    if (!line) { out.push(''); continue; }
+                    if (TXT_AD_PATTERNS.some(re => re.test(line))) continue;
+                    out.push(line);
+                }
+                return out;
+            }
+
+            // 章节标题识别（行首匹配 + 序号单调递增校验 + 行长/句末标点约束）
+            // L2：允许行首全角/半角空格；可选前缀：允许"上卷 第一回…"这类 卷部集 前缀的章回体标题
+            const RE_ORDINAL_HEAD = /^[　\s]*(?:[^\n第]{0,8}?[卷部集][\s　]*)?第\s*(\d{1,7}|[零〇一二两三四五六七八九十百千万壹贰叁肆伍陆柒捌玖拾佰仟]{1,15})\s*[章节卷回部篇集]/;
+            const RE_CHAPTER_EN = /^[　\s]*Chapter\s+(\d{1,5})\b.{0,45}$/i;
+            const RE_KEYWORD_HEAD = /^[　\s]*(楔子|引子|序章|序言|序幕|自序|前言|后记|尾声|终章|终曲|大结局|番外|外传|间章|结语|结束语|序)(?=[\s：:·.\-—]|$).{0,25}$/;
+
+            function matchHeading(line, lastOrdinal, lastVolOrdinal) {
+                if (line.length > 50) return null;
+                if (/[。！？，；…”』」]$/.test(line)) return null; // 句末标点 → 判为正文
+                let m = line.match(RE_ORDINAL_HEAD);
+                if (m) {
+                    const isVol = /[卷]$/.test(m[0].trim());
+                    const ord = cnNumToInt(m[1]);
+                    const lastRef = isVol ? lastVolOrdinal : lastOrdinal;
+                    if (ord > lastRef) return { title: line.replace(/^[　\s]+/, ''), ordinal: ord, isVol };
+                    return null; // 序号不递增 → 疑似正文引用/目录残留
+                }
+                m = line.match(RE_CHAPTER_EN);
+                if (m) {
+                    const ord = parseInt(m[1], 10);
+                    if (ord > lastOrdinal) return { title: line.replace(/^[　\s]+/, ''), ordinal: ord, isVol: false };
+                    return null;
+                }
+                if (line.length <= 30 && RE_KEYWORD_HEAD.test(line)) return { title: line.replace(/^[　\s]+/, ''), ordinal: null, isVol: false };
+                return null;
+            }
+
+            // 合并硬换行：中文直接拼接，ASCII 边界补空格
+            function joinSmart(arr) {
+                return arr.reduce((acc, l) => {
+                    if (!acc) return l;
+                    const needSpace = /[A-Za-z0-9,;:)\]}]/.test(acc[acc.length - 1]) && /[A-Za-z0-9(\[{]/.test(l[0]);
+                    return acc + (needSpace ? ' ' : '') + l;
+                }, '');
+            }
+
+            // 章节行数组 → L2长页式排版 HTML
+            // 1) 排版模式检测：A=空行分段(网文平台导出主流) / B=全角缩进分段(老式排版) / C=句末标点启发分段(硬换行无标记)
+            // 2) 段内硬换行合并（joinSmart，ASCII 边界补空格）
+            // 3) 纯分隔线行 → 样式化 .txt-sep；"。。。"→"……"；段首缩进交给 CSS（strip 原 \u3000）
+            // 4) 章末追加"— 本章完 —"注脚
+            function chapterToHtml(lines) {
+                let nonEmpty = 0, blanks = 0, indents = 0;
+                for (const l of lines) {
+                    if (!l) { blanks++; continue; }
+                    nonEmpty++;
+                    if (l[0] === '\u3000') indents++;
+                }
+                const total = nonEmpty + blanks;
+                // 高缩进比例（>50%行有全角缩进）时缩进是更强的段界信号，优先 modeB 而非 modeA
+                const highIndent = nonEmpty > 4 && indents >= 2 && indents / nonEmpty > 0.5;
+                const modeA = total > 4 && blanks / total > 0.12 && !highIndent;           // 空行分段
+                const modeB = !modeA && nonEmpty > 4 && indents >= 2 && indents / nonEmpty > 0.25; // 缩进分段
+
+                const paras = [];
+                let buf = [], prevLine = '';
+                const flushP = () => {
+                    if (!buf.length) return;
+                    paras.push({ t: 'p', text: joinSmart(buf) });
+                    buf = [];
+                };
+                // C模式：行内按句末标点（含连续叹号/省略号）切分为句段，句界即段界（硬换行无标记文本的启发兜底）
+                const toSegs = (!modeA && !modeB)
+                    ? (line) => {
+                        const segs = [];
+                        let rest = line;
+                        for (;;) {
+                            const m = rest.match(/^(.+?[。！？”…』」]+)(.+)$/);
+                            if (!m) { segs.push(rest); break; }
+                            segs.push(m[1]);
+                            rest = m[2];
+                        }
+                        // 尾段若为纯标点（如行尾孤立省略号），并回上一段
+                        if (segs.length >= 2 && /^[。！？”…』」]+$/.test(segs[segs.length - 1])) {
+                            segs[segs.length - 2] += segs.pop();
+                        }
+                        return segs;
+                    }
+                    : (line) => [line];
+                for (const line of lines) {
+                    if (!line) {
+                        if (modeA) flushP();                    // A：空行=段界
+                        else prevLine = buf.length ? buf[buf.length - 1] : prevLine;
+                        continue;
+                    }
+                    if (/^[-=*_~·—\s]{6,}$/.test(line)) {       // 纯分隔线 → 样式化分隔符
+                        flushP();
+                        paras.push({ t: 'sep' });
+                        prevLine = '';
+                        continue;
+                    }
+                    for (const seg of toSegs(line)) {
+                        let boundary = false;
+                        if (modeA) {
+                            boundary = false;                    // A：段界只由空行产生，段内一律合并
+                        } else if (modeB) {
+                            boundary = seg[0] === '\u3000';      // B：缩进行=新段起点，无缩进行=硬换行续行
+                        } else {
+                            boundary = buf.length === 0 || /[。！？”…』」]$/.test(prevLine); // C：句末标点=段界
+                        }
+                        if (boundary) flushP();
+                        buf.push(seg);
+                        prevLine = seg;
+                    }
+                }
+                flushP();
+
+                if (!paras.length) return '';
+                let html = paras.map(p => p.t === 'sep'
+                    ? '<div class="txt-sep"><i></i></div>'
+                    : `<p>${escapeHtml(p.text.replace(/^[\u3000\s]+/, '').replace(/。{3,}/g, '……'))}</p>`
+                ).join('');
+                html += '<div class="chapter-end">— 本章完 —</div>';
+                return html;
+            }
+
+            // 无章节标记兜底：按字数在段落边界切块
+            function splitBySize(lines, targetChars) {
+                const out = [];
+                let buf = [], count = 0;
+                const flush = () => {
+                    if (!buf.length) return;
+                    out.push({ title: `第${out.length + 1}部分`, ordinal: null, isVol: false, lines: buf });
+                    buf = []; count = 0;
+                };
+                for (const line of lines) {
+                    buf.push(line);
+                    count += line.length;
+                    if (count >= targetChars) flush();
+                }
+                flush();
+                return out;
+            }
+
+            // 主分割器：逐行扫描 + 卷/章序号独立单调校验 + 目录页过滤
+            function splitTxtChapters(lines) {
+                const raw = [];
+                let cur = null, curHasText = false, lastOrdinal = 0, lastVolOrdinal = 0;
+                const pushCur = () => { if (cur && (curHasText || cur.fromHead)) raw.push(cur); };
+                for (const line of lines) {
+                    if (!line) { if (cur && curHasText) cur.lines.push(''); continue; }
+                    const head = matchHeading(line, lastOrdinal, lastVolOrdinal);
+                    if (head) {
+                        pushCur();
+                        cur = { title: head.title, ordinal: head.ordinal, isVol: head.isVol, fromHead: true, lines: [] };
+                        curHasText = false;
+                        if (head.isVol) {
+                            lastVolOrdinal = head.ordinal;
+                            // 新一卷开始：章节序号在卷内重新编号（卷二"第一章" ord=1 必须能通过单调性校验）
+                            lastOrdinal = 0;
+                        }
+                        else if (head.ordinal) lastOrdinal = head.ordinal;
+                        continue;
+                    }
+                    if (!cur) cur = { title: '开篇', ordinal: null, isVol: false, fromHead: false, lines: [] };
+                    cur.lines.push(line);
+                    curHasText = true;
+                }
+                pushCur();
+
+                // 目录页过滤：同类型序号连续 + 正文几乎为空（真实目录页每项只有标题行）→ 并入下一章
+                for (let i = raw.length - 2; i >= 0; i--) {
+                    const c = raw[i], n = raw[i + 1];
+                    const bodyLen = c.lines.join('').length;
+                    if (c.ordinal != null && n && c.isVol === n.isVol && n.ordinal === c.ordinal + 1 && bodyLen < 3) {
+                        n.lines = c.lines.concat(n.lines);
+                        raw.splice(i, 1);
+                    }
+                }
+                // 卷标题自身无正文时不生成空章节（卷边界已通过 lastOrdinal 重置生效）
+                for (let i = raw.length - 1; i >= 0; i--) {
+                    if (raw[i].isVol && raw[i].lines.join('').length < 3) raw.splice(i, 1);
+                }
+
+                // 整书无章节标记 → 按字数切块
+                if (raw.length === 1 && raw[0].lines.join('').length > 60000) {
+                    return splitBySize(raw[0].lines, 25000);
+                }
+                return raw;
+            }
+
+            // TXT主解析：一次解码 + 一次分章，产出与 parseEpub 相同的 state 结构，阅读层零改动复用
+            async function parseTxt(file) {
+                showLoading(true, '正在解析TXT文件...');
+                try {
+                    const buffer = await file.arrayBuffer();
+                    const { text, enc } = detectAndDecodeText(buffer);
+                    if (!text || !text.trim()) throw new Error('文件内容为空或编码无法识别');
+
+                    const lines = txtCleanRaw(text);
+                    const parts = splitTxtChapters(lines);
+                    if (!parts.length) throw new Error('未能从文件中解析出内容');
+
+                    state.bookInfo.title = file.name.replace(/\.txt$/i, '').trim() || '未命名书籍';
+                    state.bookInfo.author = '未知作者';
+                    state.totalChapters = parts.length;
+                    state.currentChapter = 0;
+                    // 性能：章节 HTML 不在这里一次性全量生成，改为首次访问时由 loadChapterContentOnly 惰性构建
+                    state.txtParts = parts;
+                    state.chapters = new Array(parts.length);
+                    state.chapterTitles = parts.map(p => p.title);
+                    state.scrollPositions = {};
+                    state.spine = [];
+                    state.zip = null;
+
+                    showLoading(false);
+                    const wan = (text.length / 10000).toFixed(1);
+                    console.log(`TXT解析完成：${state.totalChapters} 章 · 约 ${wan} 万字 · 编码 ${enc}`);
+                    return true;
+                } catch (err) {
+                    showLoading(false);
+                    console.error('TXT解析失败:', err);
+                    alert('TXT解析失败：' + err.message);
+                    return false;
+                }
+            }
+
+            // ==================== EPUB解析 ====================
+            async function parseEpub(file) {
+                showLoading(true, '正在解析EPUB文件...');
+                try {
+                    if (typeof JSZip === 'undefined') {
+                        throw new Error('EPUB 解析库（JSZip）未加载：请检查网络连接，或将 jszip 库本地化部署');
+                    }
+                    const zip = await JSZip.loadAsync(file);
+                    state.zip = zip;
+
+                    // 1. 解析container.xml
+                    const containerXml = await zip.file('META-INF/container.xml')?.async('string');
+                    if (!containerXml) throw new Error('无效的EPUB文件：缺少container.xml');
+
+                    const containerDoc = new DOMParser().parseFromString(containerXml, 'application/xml');
+                    const rootfileEl = containerDoc.querySelector('rootfile');
+                    const opfPath = rootfileEl?.getAttribute('full-path') || rootfileEl?.getAttribute('full_path');
+                    if (!opfPath) throw new Error('无法找到OPF文件路径');
+
+                    state.opfDir = getPathDir(opfPath);
+
+                    // 2. 解析OPF文件
+                    const opfContent = await zip.file(opfPath)?.async('string');
+                    if (!opfContent) throw new Error('无法读取OPF文件');
+
+                    const opfDoc = new DOMParser().parseFromString(opfContent, 'application/xml');
+
+                    // 提取元数据
+                    const titleEl = opfDoc.querySelector('metadata title') ||
+                        opfDoc.querySelector('metadata\\:title') ||
+                        opfDoc.getElementsByTagName('dc:title')[0] ||
+                        opfDoc.getElementsByTagName('title')[0];
+                    const creatorEl = opfDoc.querySelector('metadata creator') ||
+                        opfDoc.getElementsByTagName('dc:creator')[0] ||
+                        opfDoc.getElementsByTagName('creator')[0];
+
+                    state.bookInfo.title = titleEl?.textContent?.trim() || '未知书名';
+                    state.bookInfo.author = creatorEl?.textContent?.trim() || '未知作者';
+
+                    // 提取manifest
+                    const manifest = {};
+                    const manifestItems = opfDoc.querySelectorAll('manifest item');
+                    manifestItems.forEach(item => {
+                        const id = item.getAttribute('id');
+                        const href = item.getAttribute('href');
+                        const mediaType = item.getAttribute('media-type');
+                        if (id && href) {
+                            manifest[id] = { href, mediaType };
+                        }
+                    });
+                    state.manifest = manifest;
+
+                    // 提取spine顺序
+                    const spineItems = opfDoc.querySelectorAll('spine itemref');
+                    const spinePaths = [];
+                    const spineIds = [];
+                    spineItems.forEach(item => {
+                        const idref = item.getAttribute('idref');
+                        if (idref && manifest[idref]) {
+                            const fullPath = resolveRelative(opfPath, manifest[idref].href);
+                            const mediaType = manifest[idref].mediaType;
+                            // 只包含 HTML/XHTML 内容（注意：不能只匹配 'xml'，
+                            // 否则 NCX(application/x-dtbncx+xml)、SVG(image/svg+xml) 等会被误当章节）
+                            const mt = (mediaType || '').toLowerCase();
+                            if (!mediaType || mt.includes('html') || mt.includes('xhtml')) {
+                                spinePaths.push(fullPath);
+                                spineIds.push(idref);
+                            }
+                        }
+                    });
+
+                    if (spinePaths.length === 0) throw new Error('EPUB中没有可阅读的章节内容');
+                    state.spine = spinePaths;
+                    state.totalChapters = spinePaths.length;
+                    state.currentChapter = 0;
+                    state.chapters = [];
+                    state.chapterTitles = [];
+                    state.scrollPositions = {};
+                    state.txtParts = null;
+
+                    showLoading(false);
+                    // 后台批量预提取所有章节标题（不阻塞，目录打开时再 await）
+                    ensureAllChapterTitlesLoaded().catch(() => {});
+                    return true;
+                } catch (err) {
+                    showLoading(false);
+                    console.error('EPUB解析失败:', err);
+                    alert('EPUB解析失败：' + err.message);
+                    return false;
+                }
+            }
+
+            async function loadChapter(index, options = {}) {
+                if (index < 0 || index >= state.totalChapters) return;
+                const { preserveScroll = false, scrollToRatio = null } = options;
+                showChapterLoading(true);
+                try {
+                    // 预加载目标章节及前后章节（提高切换/无缝衔接速度）
+                    const preloadTargets = [index, index - 1, index + 1, index + 2].filter(i => i >= 0 && i < state.totalChapters);
+                    for (const ti of preloadTargets) {
+                        if (state.chapters[ti]) continue;
+                        await loadChapterContentOnly(ti);
+                    }
+
+                    state.currentChapter = index;
+
+                    // 渲染（无缝模式：合并多章；普通模式：单章）
+                    if (state.seamlessMode) {
+                        await renderSeamlessUpTo(Math.min(index + 2, state.totalChapters - 1));
+                    } else {
+                        renderChapter();
+                    }
+
+                    // 滚动位置处理
+                    if (scrollToRatio !== null) {
+                        // 通过进度条拖拽跳转：按比例滚动
+                        requestAnimationFrame(() => {
+                            const maxScroll = contentArea.scrollHeight - contentArea.clientHeight;
+                            if (state.seamlessMode) {
+                                // 找到该章节的块元素并计算偏移
+                                const blockEl = chapterContent.querySelector(`.chapter-block[data-idx="${index}"]`);
+                                if (blockEl) {
+                                    const blockTop = blockEl.offsetTop;
+                                    const blockHeight = Math.max(1, blockEl.offsetHeight);
+                                    contentArea.scrollTop = Math.max(0, blockTop + blockHeight * scrollToRatio - 20);
+                                } else {
+                                    contentArea.scrollTop = maxScroll * scrollToRatio;
+                                }
+                            } else {
+                                contentArea.scrollTop = Math.max(0, maxScroll * scrollToRatio);
+                            }
+                        });
+                    } else if (preserveScroll) {
+                        // 保持（通常是点击目录不滚动变化，或者上下章切换）
+                    } else {
+                        const savedPos = state.scrollPositions[index];
+                        if (savedPos !== undefined && savedPos > 0) {
+                            requestAnimationFrame(() => {
+                                if (state.seamlessMode) {
+                                    const blockEl = chapterContent.querySelector(`.chapter-block[data-idx="${index}"]`);
+                                    if (blockEl) {
+                                        const blockHeight = Math.max(1, blockEl.offsetHeight);
+                                        contentArea.scrollTop = Math.max(0, blockEl.offsetTop + blockHeight * savedPos - 20);
+                                    }
+                                } else {
+                                    const maxScroll = contentArea.scrollHeight - contentArea.clientHeight;
+                                    contentArea.scrollTop = savedPos * maxScroll;
+                                }
+                            });
+                        } else {
+                            if (state.seamlessMode) {
+                                requestAnimationFrame(() => {
+                                    const blockEl = chapterContent.querySelector(`.chapter-block[data-idx="${index}"]`);
+                                    if (blockEl) {
+                                        contentArea.scrollTop = Math.max(0, blockEl.offsetTop - 10);
+                                    } else {
+                                        contentArea.scrollTop = 0;
+                                    }
+                                });
+                            } else {
+                                contentArea.scrollTop = 0;
+                            }
+                        }
+                    }
+
+                    // 更新UI
+                    updateUI();
+
+                } catch (err) {
+                    console.error('加载章节失败:', err);
+                    alert('加载章节失败：' + err.message);
+                } finally {
+                    showChapterLoading(false);
+                }
+            }
+
+            // 仅加载单章内容到缓存（不渲染）
+            async function loadChapterContentOnly(index) {
+                if (state.chapters[index]) return;
+                // TXT模式：章节 HTML 按需从分章结果惰性构建（避免大书一次性同步生成全部章节）
+                if (state.txtParts && state.txtParts.length) {
+                    const part = state.txtParts[index];
+                    state.chapters[index] = part ? chapterToHtml(part.lines) : '';
+                    return;
+                }
+                // 无 zip/spine 的兜底
+                if (!state.zip || !state.spine || !state.spine.length) {
+                    state.chapters[index] = state.chapters[index] || '';
+                    return;
+                }
+                // 并发去重：同一章正在加载时复用同一个 Promise，避免重复解压/重复生成 Blob
+                if (!state._chapterLoading) state._chapterLoading = {};
+                if (state._chapterLoading[index]) return state._chapterLoading[index];
+                const task = (async () => {
+                    const chapterPath = state.spine[index];
+                    const zip = state.zip;
+                    const htmlContent = await getZipFileContent(zip, chapterPath);
+                    if (!htmlContent) {
+                        state.chapters[index] = '';
+                        return;
+                    }
+                    // 轻量标题预提取（在 processImages 之前，避免因图片多延迟更新章名）
+                    if (!state.chapterTitles[index]) {
+                        const quick = extractTitleFromHtml(htmlContent);
+                        if (quick) state.chapterTitles[index] = quick;
+                    }
+                    const doc = new DOMParser().parseFromString(htmlContent, 'text/html');
+                    let bodyContent = '';
+                    const body = doc.querySelector('body');
+                    if (body) bodyContent = body.innerHTML;
+                    else bodyContent = htmlContent;
+                    // 安全：脚本/事件属性/危险标签统一在 processImages -> sanitizeDoc 白名单消毒
+                    bodyContent = await processImages(bodyContent, chapterPath, zip, index);
+
+                    let title = extractTitleFromHtml(bodyContent) || `第${index + 1}章`;
+                    if (!state.chapterTitles[index]) state.chapterTitles[index] = title;
+
+                    state.chapters[index] = bodyContent;
+                })();
+                state._chapterLoading[index] = task;
+                try {
+                    await task;
+                } finally {
+                    delete state._chapterLoading[index];
+                }
+            }
+
+            // 轻量：只确保标题存在，不解压图片、不处理 body（目录加载前批量预提取）
+            async function ensureChapterTitle(index) {
+                if (state.chapterTitles[index]) return;
+                if (state.chapters[index]) {
+                    state.chapterTitles[index] = extractTitleFromHtml(state.chapters[index]) || `第${index + 1}章`;
+                    return;
+                }
+                const chapterPath = state.spine[index];
+                const zip = state.zip;
+                if (!chapterPath || !zip) {
+                    state.chapterTitles[index] = `第${index + 1}章`;
+                    return;
+                }
+                try {
+                    const htmlContent = await getZipFileContent(zip, chapterPath);
+                    const t = htmlContent ? extractTitleFromHtml(htmlContent) : null;
+                    state.chapterTitles[index] = t && t.trim() ? t.trim() : `第${index + 1}章`;
+                } catch (e) {
+                    state.chapterTitles[index] = `第${index + 1}章`;
+                }
+            }
+            async function ensureAllChapterTitlesLoaded(opts = {}) {
+                const total = state.totalChapters;
+                if (!total) return;
+                const { returnEarlyRatio = null } = opts; // 允许调用者在已得到 X% 标题时就提前 resolve（但后台会继续跑完）
+                let cursor = 0;
+                let processed = 0;
+                let earlyResolved = false;
+                let earlyResolveFn = null;
+                const earlyPromise = new Promise(res => { earlyResolveFn = res; });
+                const concurrency = 4; // 固定并发 4，避免大书主线程被 DOMParser 打爆
+                const worker = async () => {
+                    while (cursor < total) {
+                        const cur = cursor++;
+                        try { await ensureChapterTitle(cur); } catch (e) {}
+                        processed++;
+                        // 每处理 3 章让出 1 帧，保证 UI 不卡死（点 Tab/目录仍有响应）
+                        if (processed % 3 === 0) await new Promise(r => setTimeout(r, 0));
+                        // 若调用者要求"达到 80% 标题就先 return"，直接 resolve 前台，后台继续跑完
+                        if (returnEarlyRatio && !earlyResolved && processed / total >= returnEarlyRatio) {
+                            earlyResolved = true;
+                            try { earlyResolveFn && earlyResolveFn(); } catch (e) {}
+                        }
+                    }
+                };
+                const running = Promise.all(Array.from({ length: concurrency }, () => worker()));
+                if (returnEarlyRatio) {
+                    // 并行：early 触发 OR 全量跑完，取先到者
+                    await Promise.race([earlyPromise, running]);
+                    // 但仍把全量 running 挂到后台（丢个 catch 防止后台抛错未处理）
+                    running.catch(() => {}).then(() => { state._titlesFullLoaded = true; });
+                } else {
+                    await running;
+                    state._titlesFullLoaded = true;
+                }
+            }
+
+            // 无缝模式：以当前章为中心维护一个滚动渲染窗口（当前章前 8 章 + 窗口内共 30 章）。
+            // 窗口外的章节块从 DOM 回收、Blob URL 释放、HTML 缓存丢弃；回跳到已回收章节时
+            // 按序锚点插入重建（支持向前/向后任意跳转），渲染调用经 Promise 链串行化防重复追加。
+            const RENDER_WINDOW = 30;   // DOM 中同时保留的最大章节块数
+            const RENDER_BEHIND = 8;    // 当前章之前保留的章数
+
+            function buildChapterBlock(i) {
+                const content = state.chapters[i] || '';
+                const title = state.chapterTitles[i] || `第${i + 1}章`;
+                const block = document.createElement('section');
+                block.className = 'chapter-block';
+                block.dataset.idx = String(i);
+
+                if (i > 0) {
+                    const divider = document.createElement('div');
+                    divider.className = 'chapter-divider';
+                    const span = document.createElement('span');
+                    span.className = 'divider-title';
+                    // 安全：标题来自电子书内容（TXT 原始行 / EPUB 文本），必须 textContent，禁止 innerHTML 拼接
+                    span.textContent = `— ${title} —`;
+                    divider.appendChild(span);
+                    block.appendChild(divider);
+                } else {
+                    const heading = document.createElement('div');
+                    heading.className = 'chapter-heading';
+                    heading.textContent = title;
+                    block.appendChild(heading);
+                }
+                const inner = document.createElement('div');
+                inner.className = 'chapter-inner';
+                // content 已经过白名单消毒（EPUB: sanitizeDoc）或转义（TXT: escapeHtml）
+                inner.innerHTML = content;
+                block.appendChild(inner);
+                return block;
+            }
+
+            async function renderSeamlessUpTo(upToIndex) {
+                // 串行化：并发调用（连点翻章、滚动追加途中跳目录）排队执行，后一次基于最新窗口自我修正
+                const prev = state._renderChain || Promise.resolve();
+                let release;
+                state._renderChain = new Promise(r => { release = r; });
+                await prev;
+                try {
+                    await doRenderSeamless(upToIndex);
+                } finally {
+                    release();
+                }
+            }
+
+            async function doRenderSeamless(upToIndex) {
+                const total = state.totalChapters;
+                if (total <= 0) return;
+                upToIndex = Math.min(Math.max(0, upToIndex), total - 1);
+
+                // 期望窗口：下限以当前章前 RENDER_BEHIND 章为准，上限至少覆盖 upToIndex 与当前章+2
+                const wantHi = Math.max(upToIndex, Math.min(total - 1, state.currentChapter + 2));
+                let wantLo = Math.max(0, Math.min(state.currentChapter - RENDER_BEHIND, wantHi - RENDER_WINDOW + 1));
+                if (wantHi - wantLo + 1 > RENDER_WINDOW) wantLo = wantHi - RENDER_WINDOW + 1;
+
+                // 现有块索引
+                const existing = new Map();
+                chapterContent.querySelectorAll('.chapter-block').forEach(b => {
+                    const idx = parseInt(b.dataset.idx, 10);
+                    if (!isNaN(idx)) existing.set(idx, b);
+                });
+                const firstRender = existing.size === 0;
+                if (firstRender) chapterContent.innerHTML = '';
+
+                // 回收窗口外的块
+                for (const [idx, b] of existing) {
+                    if (idx < wantLo || idx > wantHi) {
+                        b.remove();
+                        existing.delete(idx);
+                    }
+                }
+
+                // 首屏入场动画
+                if (firstRender) {
+                    chapterContent.classList.remove('chapter-transition');
+                    void chapterContent.offsetWidth;
+                    chapterContent.classList.add('chapter-transition');
+                }
+
+                // 构建窗口内缺失的块（升序；用第一个 idx 更大的现存块做锚点 insertBefore，保证回跳补块顺序正确）
+                for (let i = wantLo; i <= wantHi; i++) {
+                    if (existing.has(i)) continue;
+                    if (!state.chapters[i]) await loadChapterContentOnly(i);
+                    const block = buildChapterBlock(i);
+                    let anchor = null;
+                    for (const b of chapterContent.querySelectorAll('.chapter-block')) {
+                        const bi = parseInt(b.dataset.idx, 10);
+                        if (!isNaN(bi) && bi > i) { anchor = b; break; }
+                    }
+                    if (anchor) chapterContent.insertBefore(block, anchor);
+                    else chapterContent.appendChild(block);
+                    existing.set(i, block);
+                }
+
+                state.renderedLo = wantLo;
+                state.renderedUpTo = wantHi;
+
+                // 测量窗口内所有块的几何（一次 Layout，供 saveScroll 读缓存，避免 O(N) 强制布局）
+                const currentBlocks = chapterContent.querySelectorAll('.chapter-block');
+                for (const b of currentBlocks) {
+                    b.dataset.top = String(b.offsetTop);
+                    b.dataset.height = String(b.offsetHeight);
+                }
+                state._geomDirty = false;
+
+                // Blob 按窗口回收（同时丢弃失效章节的 HTML 缓存，回跳时从 zip/TXT 重新构建）
+                try { cleanupBlobWindow(wantLo, wantHi); } catch (e) {}
+
+                applySettingsToContent();
+            }
+
+            // ==================== 安全：不可信 HTML 白名单消毒（防恶意 EPUB XSS） ====================
+            // 说明：innerHTML 插入时 <script> 不执行，但 on* 事件属性（<img onerror>、<svg onload>）、
+            // <iframe>/<object>、<a href="javascript:">、外部 <link rel=stylesheet> 等都会生效，必须清除。
+            const SANITIZE_BLOCKED_TAGS = new Set([
+                'script', 'iframe', 'object', 'embed', 'link', 'meta', 'base',
+                'form', 'style', 'noscript', 'template', 'applet', 'frame', 'frameset',
+            ]);
+            function sanitizeDoc(doc) {
+                const root = doc.body || doc.documentElement;
+                if (!root) return;
+                const toRemove = [];
+                const walker = doc.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+                let node;
+                while ((node = walker.nextNode())) {
+                    const tag = node.tagName.toLowerCase();
+                    if (SANITIZE_BLOCKED_TAGS.has(tag)) {
+                        toRemove.push(node);
+                        continue;
+                    }
+                    const attrs = Array.from(node.attributes);
+                    for (const attr of attrs) {
+                        const name = attr.name.toLowerCase();
+                        const val = attr.value.trim().toLowerCase();
+                        // 移除所有事件处理属性（onerror/onload/onclick ...）
+                        if (name.startsWith('on')) {
+                            node.removeAttribute(attr.name);
+                        } else if ((name === 'href' || name === 'src' || name === 'xlink:href') &&
+                                   // 移除脚本协议与 HTML 型 data URI（data:image/* 不受影响）
+                                   /^(javascript|vbscript|file):|^data:text\/html/i.test(val)) {
+                            node.removeAttribute(attr.name);
+                        }
+                    }
+                }
+                for (const el of toRemove) {
+                    if (el.parentNode) el.parentNode.removeChild(el);
+                }
+            }
+
+            async function processImages(htmlContent, chapterPath, zip, chapterIdx = -1) {
+                // 使用DOMParser处理img标签
+                const doc = new DOMParser().parseFromString(htmlContent, 'text/html');
+                const imgs = doc.querySelectorAll('img');
+                const imgPromises = [];
+
+                for (const img of imgs) {
+                    const src = img.getAttribute('src');
+                    if (!src || src.startsWith('data:') || src.startsWith('blob:')) continue;
+                    // 远程绝对 URL（http(s):// 或协议相对 //）：zip 内不存在，渲染时会发起外网请求
+                    // （IP/Referer/阅读行为泄漏、可作追踪像素）→ 直接移除 src
+                    if (/^\s*(https?:)?\/\//i.test(src)) {
+                        img.removeAttribute('src');
+                        img.setAttribute('alt', '');
+                        continue;
+                    }
+                    const promise = (async () => {
+                        try {
+                            const resolvedPath = resolveRelative(chapterPath, src);
+                            // 使用兼容路径的读取函数，返回arraybuffer
+                            const fileData = await getZipFileContent(zip, resolvedPath, 'arraybuffer');
+                            if (fileData) {
+                                const ext = resolvedPath.split('.').pop()?.toLowerCase();
+                                let mimeType = 'image/jpeg';
+                                if (ext === 'png') mimeType = 'image/png';
+                                else if (ext === 'gif') mimeType = 'image/gif';
+                                else if (ext === 'svg' || ext === 'svg+xml') mimeType = 'image/svg+xml';
+                                else if (ext === 'webp') mimeType = 'image/webp';
+                                else if (ext === 'jpg' || ext === 'jpeg') mimeType = 'image/jpeg';
+                                const blobUrl = generateBlobUrl(fileData, mimeType, chapterIdx);
+                                img.setAttribute('src', blobUrl);
+                            } else {
+                                // zip 内找不到（路径损坏/缺失）：移除 src，避免碎图与隐式外网请求
+                                img.removeAttribute('src');
+                                img.setAttribute('alt', '');
+                            }
+                        } catch (e) {
+                            img.removeAttribute('src');
+                            img.setAttribute('alt', '');
+                        }
+                    })();
+                    imgPromises.push(promise);
+                }
+
+                await Promise.all(imgPromises);
+                // 序列化前统一消毒（事件属性/危险标签/危险协议）
+                sanitizeDoc(doc);
+                const body = doc.querySelector('body');
+                return body ? body.innerHTML : doc.documentElement.innerHTML;
+            }
+
+            function renderChapter() {
+                const index = state.currentChapter;
+                const content = state.chapters[index];
+                if (!content) return;
+
+                chapterContent.innerHTML = content;
+                chapterContent.classList.remove('chapter-transition');
+                void chapterContent.offsetWidth; // 触发reflow
+                chapterContent.classList.add('chapter-transition');
+
+                // 应用字体设置
+                applySettingsToContent();
+            }
+
+            // ==================== 自定义主题：由背景色自动推导整套配色 ====================
+            // 思路：把 hex 背景色转 HSL，按亮度分亮/暗两套基调，文字色保证对比度，
+            // 强调色取背景色同色系的深/浅版本，工具栏/面板用背景色微调亮度。
+            function hexToRgb(hex) {
+                const m = String(hex).trim().match(/^#?([0-9a-f]{6})$/i);
+                if (!m) return null;
+                const n = parseInt(m[1], 16);
+                return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+            }
+            function rgbToHex(r, g, b) {
+                const h = x => Math.round(x).toString(16).padStart(2, '0');
+                return '#' + h(r) + h(g) + h(b);
+            }
+            function rgbToHsl(r, g, b) {
+                r /= 255; g /= 255; b /= 255;
+                const max = Math.max(r, g, b), min = Math.min(r, g, b);
+                let h = 0, s = 0, l = (max + min) / 2;
+                if (max !== min) {
+                    const d = max - min;
+                    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+                    switch (max) {
+                        case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+                        case g: h = (b - r) / d + 2; break;
+                        case b: h = (r - g) / d + 4; break;
+                    }
+                    h *= 60;
+                }
+                return { h, s, l };
+            }
+            function hslToRgb(h, s, l) {
+                h /= 360;
+                let r, g, b;
+                if (s === 0) { r = g = b = l; }
+                else {
+                    const hue2rgb = (p, q, t) => {
+                        if (t < 0) t += 1; if (t > 1) t -= 1;
+                        if (t < 1 / 6) return p + (q - p) * 6 * t;
+                        if (t < 1 / 2) return q;
+                        if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+                        return p;
+                    };
+                    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+                    const p = 2 * l - q;
+                    r = hue2rgb(p, q, h + 1 / 3);
+                    g = hue2rgb(p, q, h);
+                    b = hue2rgb(p, q, h - 1 / 3);
+                }
+                return { r: r * 255, g: g * 255, b: b * 255 };
+            }
+            // 调整亮度（l 为 0~1 的 HSL 亮度，amt 为增量）
+            function shiftLightness(hex, amt) {
+                const rgb = hexToRgb(hex);
+                if (!rgb) return hex;
+                const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
+                hsl.l = Math.max(0, Math.min(1, hsl.l + amt));
+                const nr = hslToRgb(hsl.h, hsl.s, hsl.l);
+                return rgbToHex(nr.r, nr.g, nr.b);
+            }
+            // 给定背景色，推导整套主题变量
+            function computeCustomTheme(bg) {
+                const rgb = hexToRgb(bg);
+                if (!rgb) return null;
+                // 相对亮度（0~255），>140 视为亮色背景
+                const Y = 0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b;
+                const isLight = Y > 140;
+                const text = isLight ? '#2a2a2a' : '#e4e6eb';
+                const textSecondary = isLight ? '#777777' : '#8b92a3';
+                // 强调色：背景色同色系，亮度向中间靠拢以保证可见
+                const accent = isLight ? shiftLightness(bg, -0.4) : shiftLightness(bg, 0.3);
+                const accentLight = isLight ? shiftLightness(bg, -0.28) : shiftLightness(bg, 0.42);
+                // 工具栏/面板：背景色微调亮度（亮色背景提亮，暗色背景提亮一点）
+                const panelBg = isLight ? shiftLightness(bg, 0.06) : shiftLightness(bg, 0.08);
+                const toolbarBg = isLight
+                    ? 'rgba(255,255,255,0.92)'
+                    : 'rgba(30,32,40,0.92)';
+                const border = isLight ? shiftLightness(bg, -0.12) : shiftLightness(bg, 0.18);
+                const shadow = isLight ? 'rgba(0,0,0,0.08)' : 'rgba(0,0,0,0.5)';
+                const progressBar = accent;
+                // 纸纹：用与文字同色的极弱颗粒
+                const dotColor = isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)';
+                const paperTexture = `radial-gradient(${dotColor} 1px, transparent 1px) 0 0 / 3px 3px`;
+                return {
+                    bg, text, textSecondary, accent, accentLight,
+                    toolbarBg, panelBg, border, shadow, progressBar, paperTexture,
+                };
+            }
+
+            function applySettingsToContent() {
+                document.documentElement.style.setProperty('--font-size', state.settings.fontSize + 'px');
+                document.documentElement.style.setProperty('--line-height', state.settings.lineHeight);
+                document.documentElement.style.setProperty('--font-family', fontFamilyMap[state.settings.fontFamily] ||
+                    fontFamilyMap.serif);
+                document.documentElement.setAttribute('data-theme', state.settings.theme);
+                // 自定义主题：根据 customBg 推导并写入变量；切回其他主题时清空自定义变量避免污染
+                const root = document.documentElement.style;
+                if (state.settings.theme === 'custom' && state.settings.customBg) {
+                    const c = computeCustomTheme(state.settings.customBg);
+                    if (c) {
+                        root.setProperty('--bg', c.bg);
+                        root.setProperty('--text', c.text);
+                        root.setProperty('--text-secondary', c.textSecondary);
+                        root.setProperty('--accent', c.accent);
+                        root.setProperty('--accent-light', c.accentLight);
+                        root.setProperty('--toolbar-bg', c.toolbarBg);
+                        root.setProperty('--panel-bg', c.panelBg);
+                        root.setProperty('--border', c.border);
+                        root.setProperty('--shadow', c.shadow);
+                        root.setProperty('--progress-bar', c.progressBar);
+                        root.setProperty('--paper-texture', c.paperTexture);
+                    }
+                } else {
+                    root.removeProperty('--bg');
+                    root.removeProperty('--text');
+                    root.removeProperty('--text-secondary');
+                    root.removeProperty('--accent');
+                    root.removeProperty('--accent-light');
+                    root.removeProperty('--toolbar-bg');
+                    root.removeProperty('--panel-bg');
+                    root.removeProperty('--border');
+                    root.removeProperty('--shadow');
+                    root.removeProperty('--progress-bar');
+                    root.removeProperty('--paper-texture');
+                }
+            }
+
+            function updateUI() {
+                // 目录面板内的书名作者
+                if (tocBookName) tocBookName.textContent = state.bookInfo.title;
+                if (tocBookAuthor) tocBookAuthor.textContent = state.bookInfo.author;
+
+                // 目录（重绘高亮当前章）
+                renderToc();
+
+                // 侧边栏按钮联动（夜间激活态）
+                syncNightIcon();
+            }
+
+            // 目录渲染：首次全量建 DOM，之后只增量更新（切换 active + 补章名 textContent）
+            function renderToc() {
+                const total = state.totalChapters;
+                // 判断是否要全量重建：缓存不存在 / 数量不匹配（换了一本书）
+                const needFullBuild =
+                    !Array.isArray(state._tocItemsEl) ||
+                    state._tocItemsEl.length !== total ||
+                    tocList.childElementCount !== total;
+
+                if (needFullBuild) {
+                    tocList.innerHTML = '';
+                    const cache = new Array(total);
+                    const frag = document.createDocumentFragment();
+                    for (let i = 0; i < total; i++) {
+                        const title = state.chapterTitles[i] || `第${i + 1}章`;
+                        const item = document.createElement('div');
+                        item.className = 'toc-item' + (i === state.currentChapter ? ' active' : '');
+                        item.dataset.idx = String(i);
+
+                        const idxSpan = document.createElement('span');
+                        idxSpan.className = 'toc-index';
+                        idxSpan.textContent = String(i + 1);
+                        const titleSpan = document.createElement('span');
+                        titleSpan.className = 'toc-title';
+                        titleSpan.textContent = title;
+
+                        item.appendChild(idxSpan);
+                        item.appendChild(titleSpan);
+
+                        // 单个委托 click：用 dataset.idx 读取章节索引（避免 N 个闭包）
+                        item.addEventListener('click', () => {
+                            const clickedIdx = parseInt(item.dataset.idx, 10);
+                            if (isNaN(clickedIdx)) return;
+                            closeToc();
+                            if (clickedIdx !== state.currentChapter) {
+                                saveScrollPosition();
+                                loadChapter(clickedIdx);
+                            }
+                        });
+
+                        frag.appendChild(item);
+                        cache[i] = { item, titleSpan, lastTitle: title };
+                    }
+                    tocList.appendChild(frag);
+                    state._tocItemsEl = cache;
+                    state._tocActiveIdx = state.currentChapter;
+                    return;
+                }
+
+                // ===== 增量路径：只改变化项 =====
+                const cache = state._tocItemsEl;
+                // 1) active class：清除旧的 + 加新的（O(1)）
+                const prevIdx = typeof state._tocActiveIdx === 'number' ? state._tocActiveIdx : -1;
+                const curIdx = state.currentChapter;
+                if (prevIdx !== curIdx) {
+                    if (prevIdx >= 0 && cache[prevIdx]) cache[prevIdx].item.classList.remove('active');
+                    if (cache[curIdx]) cache[curIdx].item.classList.add('active');
+                    state._tocActiveIdx = curIdx;
+                }
+                // 2) 章名：只 patch 与缓存 lastTitle 不一致的那些 span.textContent
+                for (let i = 0; i < total; i++) {
+                    const entry = cache[i];
+                    if (!entry) continue;
+                    const want = state.chapterTitles[i] || `第${i + 1}章`;
+                    if (entry.lastTitle !== want) {
+                        entry.titleSpan.textContent = want;
+                        entry.lastTitle = want;
+                    }
+                }
+            }
+
+            function escapeHtml(str) {
+                const div = document.createElement('div');
+                div.textContent = str;
+                return div.innerHTML;
+            }
+
+            // ==================== 滚动位置管理（无缝模式按当前显示块计算） ====================
+            function saveScrollPosition() {
+                if (state.totalChapters <= 0) return;
+
+                if (state.seamlessMode) {
+                    // 几何缓存过期（改字号/字体/行距、图片加载、窗口缩放）时先重测一次，避免位置漂移
+                    if (state._geomDirty) {
+                        chapterContent.querySelectorAll('.chapter-block').forEach(b => {
+                            b.dataset.top = String(b.offsetTop);
+                            b.dataset.height = String(b.offsetHeight);
+                        });
+                        state._geomDirty = false;
+                    }
+                    // 找到当前滚动位置下最近的一个章节块（块顶 <= viewportTop + 30 的最后一个）
+                    const viewportTop = contentArea.scrollTop + 30;
+                    const blocks = chapterContent.querySelectorAll('.chapter-block');
+                    let currentIdx = state.currentChapter || 0;
+                    let blockOffsetRatio = 0;
+                    for (let i = 0; i < blocks.length; i++) {
+                        const b = blocks[i];
+                        const idx = parseInt(b.dataset.idx, 10);
+                        if (isNaN(idx)) continue;
+                        // Fix2：优先读 dataset 缓存几何，避免 O(N) 强制 Layout
+                        let blockTop = +b.dataset.top;
+                        let blockHeight = +b.dataset.height;
+                        if (!blockTop && blockTop !== 0) blockTop = b.offsetTop;
+                        if (!blockHeight) blockHeight = b.offsetHeight;
+                        if (blockTop <= viewportTop) {
+                            currentIdx = idx;
+                            const inside = viewportTop - 30 - blockTop;
+                            blockOffsetRatio = Math.max(0, Math.min(1, inside / Math.max(1, blockHeight)));
+                        } else {
+                            break;
+                        }
+                    }
+                    // 已滚到容器最底部时（末章短于一屏，其块顶永远够不到 scrollTop+30），
+                    // 当前章取最后一个已渲染块，避免短末章无法成为当前章（影响 Home/End 与进度记忆）
+                    const maxScrollSeamless = contentArea.scrollHeight - contentArea.clientHeight;
+                    if (maxScrollSeamless > 0 && contentArea.scrollTop >= maxScrollSeamless - 2) {
+                        const lastBlock = blocks[blocks.length - 1];
+                        const lastIdx = lastBlock ? parseInt(lastBlock.dataset.idx, 10) : NaN;
+                        if (!isNaN(lastIdx)) {
+                            currentIdx = lastIdx;
+                            blockOffsetRatio = 1;
+                        }
+                    }
+                    state.currentChapter = currentIdx;
+                    state.scrollPositions[currentIdx] = blockOffsetRatio;
+                } else {
+                    const idx = state.currentChapter;
+                    const maxScroll = contentArea.scrollHeight - contentArea.clientHeight;
+                    if (maxScroll > 0) {
+                        const pos = contentArea.scrollTop / maxScroll;
+                        state.scrollPositions[idx] = Math.max(0, Math.min(1, pos));
+                    } else {
+                        state.scrollPositions[idx] = 0;
+                    }
+                }
+            }
+
+            const debouncedSaveScroll = debounce(saveScrollPosition, 250);
+
+            // 无缝模式：滚到底部时自动追加下一章内容，并在继续滚动时切到下一章
+            async function tryAppendNextChapterIfNeeded() {
+                // 互斥锁：防止 scroll 事件在 await 期间重复触发多次 render（否则同一段会并发跑 3~5 次）
+                if (state._appendingLock) return;
+                state._appendingLock = true;
+                try {
+                    if (!state.seamlessMode) return;
+                    if (state.renderedUpTo >= state.totalChapters - 1) return;
+                    const maxScroll = contentArea.scrollHeight - contentArea.clientHeight;
+                    if (maxScroll <= 0) return;
+                    const remaining = maxScroll - contentArea.scrollTop;
+                    // 剩余不足一屏时提前追加
+                    if (remaining < contentArea.clientHeight * 0.8) {
+                        await renderSeamlessUpTo(Math.min(state.renderedUpTo + 3, state.totalChapters - 1));
+                    }
+                } finally {
+                    state._appendingLock = false;
+                }
+            }
+
+            // ==================== 设置管理 ====================
+            function loadSettings() {
+                try {
+                    const saved = localStorage.getItem('epub-reader-settings');
+                    if (saved) {
+                        const parsed = JSON.parse(saved) || {};
+                        // 白名单 + 钳制：损坏/被篡改的存档不得污染 CSS 变量与阅读状态
+                        const THEME_WHITELIST = ['warm', 'white', 'night', 'green', 'parchment', 'pink', 'custom'];
+                        const LINE_HEIGHTS = [1.6, 1.8, 2.2];
+                        const fs = Number(parsed.fontSize);
+                        if (Number.isFinite(fs)) state.settings.fontSize = Math.max(12, Math.min(30, Math.round(fs)));
+                        if (THEME_WHITELIST.includes(parsed.theme)) state.settings.theme = parsed.theme;
+                        // 自定义背景色：只接受 #rrggbb 形式，非法值丢弃回退默认主题
+                        if (/^#[0-9a-f]{6}$/i.test(parsed.customBg)) state.settings.customBg = parsed.customBg;
+                        if (fontFamilyMap[parsed.fontFamily]) state.settings.fontFamily = parsed.fontFamily;
+                        const lh = Number(parsed.lineHeight);
+                        if (LINE_HEIGHTS.includes(lh)) state.settings.lineHeight = lh;
+                    }
+                } catch (e) {}
+                applySettingsToContent();
+                updateSettingsUI();
+            }
+
+            function saveSettings() {
+                try {
+                    localStorage.setItem('epub-reader-settings', JSON.stringify(state.settings));
+                } catch (e) {}
+            }
+
+            function updateSettingsUI() {
+                // 字体大小显示
+                fontSizeDisplay.textContent = state.settings.fontSize + 'px';
+
+                // 主题
+                $$('.theme-option').forEach(el => {
+                    el.classList.toggle('active', el.dataset.theme === state.settings.theme);
+                });
+
+                // 字体
+                $$('.font-option').forEach(el => {
+                    el.classList.toggle('active', el.dataset.font === state.settings.fontFamily);
+                });
+
+                // 行距
+                $$('.line-height-option').forEach(el => {
+                    el.classList.toggle('active', parseFloat(el.dataset.lh) === state.settings.lineHeight);
+                });
+            }
+
+            function setTheme(theme) {
+                // 自定义主题：首次点击弹出颜色选择器；已有颜色则直接应用
+                if (theme === 'custom' && !state.settings.customBg) {
+                    openCustomBgPicker();
+                    return;
+                }
+                state.settings.theme = theme;
+                applySettingsToContent();
+                updateSettingsUI();
+                saveSettings();
+                syncNightIcon();
+            }
+
+            // 打开系统颜色选择器，选定后应用为自定义背景色
+            function openCustomBgPicker() {
+                const picker = document.getElementById('custom-bg-picker');
+                if (!picker) return;
+                if (state.settings.customBg) picker.value = state.settings.customBg;
+                picker.click();
+            }
+
+            function setFontSize(size) {
+                size = Math.max(12, Math.min(30, size));
+                state.settings.fontSize = size;
+                state._geomDirty = true; // 字号改变块高/块顶，章节几何缓存需重测
+                applySettingsToContent();
+                updateSettingsUI();
+                saveSettings();
+            }
+
+            function setFontFamily(font) {
+                state.settings.fontFamily = font;
+                state._geomDirty = true; // 字体度量变化同样影响几何
+                applySettingsToContent();
+                updateSettingsUI();
+                saveSettings();
+            }
+
+            function setLineHeight(lh) {
+                state.settings.lineHeight = lh;
+                state._geomDirty = true;
+                applySettingsToContent();
+                updateSettingsUI();
+                saveSettings();
+            }
+
+            // ==================== 侧边栏 Dock 显隐（自动隐藏 + body.dock-hidden 联动） ====================
+            function toggleDock(show) {
+                const shouldShow = show !== undefined ? show : state.isToolbarVisible === false;
+                state.isToolbarVisible = shouldShow;
+                if (shouldShow) {
+                    document.body.classList.remove('dock-hidden');
+                } else {
+                    // pinned 时，禁止通过 toggleDock(false) 隐藏（仅 Tab 能切 pin）
+                    if (state.dockPinned) return;
+                    document.body.classList.add('dock-hidden');
+                }
+                scheduleAutoHideDock();
+            }
+
+            // Tab 呼出/隐藏侧边栏：切换 pinned 固定态；按 Tab 立即显示或立即隐藏
+            function toggleDockPin() {
+                state.dockPinned = !state.dockPinned;
+                if (state.autoHideTimer) { clearTimeout(state.autoHideTimer); state.autoHideTimer = null; }
+                if (state.dockPinned) {
+                    // 固定显示
+                    state.isToolbarVisible = true;
+                    document.body.classList.remove('dock-hidden');
+                    // 给一个短暂的激活视觉反馈（脉冲 class），通过 dock-label 不做
+                } else {
+                    // 取消固定：立即隐藏，并恢复 auto-hide 流程
+                    state.isToolbarVisible = false;
+                    document.body.classList.add('dock-hidden');
+                    scheduleAutoHideDock();
+                }
+            }
+
+            // 兼容旧调用（保留函数别名）
+            const toggleToolbars = toggleDock;
+
+            function showDockTemporarily() {
+                if (state.isTocOpen || state.isSettingsOpen) return;
+                // pinned 时，不需要"临时显示"逻辑（一直显示）
+                if (state.dockPinned) {
+                    state.isToolbarVisible = true;
+                    document.body.classList.remove('dock-hidden');
+                    return;
+                }
+                toggleDock(true);
+            }
+            const showToolbarsTemporarily = showDockTemporarily;
+
+            function scheduleAutoHideDock() {
+                if (state.autoHideTimer) clearTimeout(state.autoHideTimer);
+                // pinned 固定态时永远不自动隐藏
+                if (state.dockPinned) return;
+                if (!state.isToolbarVisible) return;
+                if (!readerPage.classList.contains('active')) return;
+                if (state.isTocOpen || state.isSettingsOpen || state.isDraggingProgress) return;
+                state.autoHideTimer = setTimeout(() => {
+                    toggleDock(false);
+                }, 5000);
+            }
+            const scheduleAutoHideToolbars = scheduleAutoHideDock;
+
+            // ==================== 目录侧边栏 ====================
+            async function openToc() {
+                // 打开前立即同步滚动位置 + currentChapter，保证目录高亮就是当前正在看的
+                saveScrollPosition();
+                updateUI();
+                state.isTocOpen = true;
+                tocSidebar.classList.add('active');
+                tocOverlay.classList.add('active');
+                if (state.autoHideTimer) { clearTimeout(state.autoHideTimer); state.autoHideTimer = null; }
+
+                // 第 1 次渲染：立刻用已有标题 render（哪怕是"第X章"占位，先让用户可点/可看高亮，不卡死）
+                renderToc();
+                scrollTocActiveIntoCenter();
+
+                // 第 2 次渲染：当已有 80% 标题就 early return renderToc（UI 不白等最后 20%）
+                try { await ensureAllChapterTitlesLoaded({ returnEarlyRatio: 0.8 }); } catch (e) {}
+                renderToc();
+                scrollTocActiveIntoCenter();
+
+                // 第 3 次（可选）：后台把剩余 20% 标题跑完后，若用户此刻仍开着目录 → 再增量补一次 100% 真标题
+                try {
+                    const runningFinal = ensureAllChapterTitlesLoaded({ returnEarlyRatio: null });
+                    runningFinal.catch(() => {}).then(() => {
+                        if (state.isTocOpen) {
+                            renderToc();
+                            scrollTocActiveIntoCenter();
+                        }
+                    });
+                } catch (e) {}
+            }
+
+            function scrollTocActiveIntoCenter() {
+                requestAnimationFrame(() => {
+                    const active = tocList.querySelector('.toc-item.active');
+                    if (active) active.scrollIntoView({ block: 'center', behavior: 'instant' in Element.prototype ? 'instant' : 'auto' });
+                });
+            }
+
+            function closeToc() {
+                state.isTocOpen = false;
+                tocSidebar.classList.remove('active');
+                tocOverlay.classList.remove('active');
+                scheduleAutoHideToolbars();
+            }
+
+            // ==================== 设置面板 ====================
+            function openSettings() {
+                state.isSettingsOpen = true;
+                settingsPanel.classList.add('active');
+                settingsOverlay.classList.add('active');
+                updateSettingsUI();
+                if (state.autoHideTimer) { clearTimeout(state.autoHideTimer); state.autoHideTimer = null; }
+            }
+
+            function closeSettings() {
+                state.isSettingsOpen = false;
+                settingsPanel.classList.remove('active');
+                settingsOverlay.classList.remove('active');
+                scheduleAutoHideToolbars();
+            }
+
+            // ==================== 导航 ====================
+            function goToPrevChapter() {
+                if (state.currentChapter > 0) {
+                    saveScrollPosition();
+                    loadChapter(state.currentChapter - 1);
+                } else {
+                    // 已经在第一章，滚到顶部提示一下
+                    contentArea.scrollTo({ top: 0, behavior: 'smooth' });
+                }
+            }
+
+            function goToNextChapter() {
+                if (state.currentChapter < state.totalChapters - 1) {
+                    saveScrollPosition();
+                    loadChapter(state.currentChapter + 1);
+                } else {
+                    contentArea.scrollTo({ top: contentArea.scrollHeight, behavior: 'smooth' });
+                }
+            }
+
+            // 长页式「翻页」：按屏幕 80% 高度上下滚动；滚动到边界后自动切章节
+            function scrollPageUp() {
+                const pageHeight = Math.max(1, Math.floor(contentArea.clientHeight * 0.78));
+                const target = Math.max(0, contentArea.scrollTop - pageHeight);
+                contentArea.scrollTo({ top: target, behavior: 'smooth' });
+                if (contentArea.scrollTop <= 1 && state.currentChapter > 0) {
+                    // 已到顶，且不是第一章 → 切到上一章末尾（定时器去重，连点不重复触发）
+                    clearTimeout(scrollPageUp._t);
+                    scrollPageUp._t = setTimeout(() => goToPrevChapter(), 180);
+                }
+            }
+            function scrollPageDown() {
+                const pageHeight = Math.max(1, Math.floor(contentArea.clientHeight * 0.78));
+                const maxScroll = contentArea.scrollHeight - contentArea.clientHeight;
+                const target = Math.min(maxScroll, contentArea.scrollTop + pageHeight);
+                contentArea.scrollTo({ top: target, behavior: 'smooth' });
+                if (target >= maxScroll - 1 && state.currentChapter < state.totalChapters - 1) {
+                    clearTimeout(scrollPageDown._t);
+                    scrollPageDown._t = setTimeout(() => goToNextChapter(), 180);
+                }
+            }
+
+            // 三区点击（长页式）：左 28% 上翻 / 中 44% 切换工具栏 / 右 28% 下翻
+            function handleTriZoneClick(e) {
+                if (e.target.closest('a') || e.target.closest('button') || e.target.closest('input')) return;
+                const rect = contentArea.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const w = rect.width;
+                const ratio = x / w;
+
+                showTapFeedback(e.clientX, e.clientY);
+
+                if (ratio < 0.28) {
+                    // 左区：上翻页（或上一章）
+                    scrollPageUp();
+                } else if (ratio > 0.72) {
+                    // 右区：下翻页（或下一章）
+                    scrollPageDown();
+                } else {
+                    // 中区：切换工具栏（经典阅读器风格）
+                    toggleToolbars();
+                }
+            }
+
+            // ==================== 夜间模式快捷切换（侧边栏夜间按钮） ====================
+            function toggleNightMode() {
+                const isNight = state.settings.theme === 'night';
+                setTheme(isNight ? 'warm' : 'night');
+            }
+            // 两个 SVG 模板（纯线条）：月亮 = 待切夜间；太阳 = 待切日间
+            const SVG_MOON = `<svg class="dock-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4 7 7 0 1 0 20 14.5z"/></svg>`;
+            const SVG_SUN  = `<svg class="dock-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2"  x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="4.93" y1="4.93"  x2="7.05" y2="7.05"/><line x1="16.95" y1="16.95" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.05" y2="16.95"/><line x1="16.95" y1="7.05" x2="19.07" y2="4.93"/></svg>`;
+
+            // 同步夜间按钮：SVG图标（日/月切换） + 激活态高亮
+            function syncNightIcon() {
+                if (!dockNight) return;
+                const isNight = state.settings.theme === 'night';
+                // 图标：当前是夜间 → 显示太阳（点击切到日间）；当前是日间 → 显示月亮（点击切到夜间）
+                const icon = dockNight.querySelector('.dock-icon');
+                const label = dockNight.querySelector('.dock-label');
+                const newSvg = isNight ? SVG_SUN : SVG_MOON;
+                if (icon && icon.outerHTML) {
+                    icon.outerHTML = newSvg; // 整体替换 <svg>（保留 class 位置在模板中）
+                } else {
+                    dockNight.insertAdjacentHTML('afterbegin', newSvg);
+                    if (icon) icon.remove();
+                }
+                if (label) label.textContent = isNight ? '日间' : '夜间';
+                dockNight.title = isNight ? '切换为日间模式 (N)' : '切换为夜间模式 (N)';
+                dockNight.classList.toggle('is-active', isNight);
+            }
+
+            function goBackToUpload() {
+                saveScrollPosition();
+                // Fix5：切书架时强制写重型存档 + 停定时器（卸载事件不再做这个大 JSON）
+                persistLastBook(true);
+                persistMarker();
+                stopPeriodicPersist();
+                cleanupBlobUrls();
+                state.zip = null;
+                state.chapters = [];
+                state.chapterTitles = [];
+                state.spine = [];
+                state.txtParts = null;
+                state.scrollPositions = {};
+                state.renderedUpTo = -1;
+                state.renderedLo = -1;
+                state.currentChapter = 0;
+                state.totalChapters = 0;
+                state._tocItemsEl = null;
+                state._tocActiveIdx = -1;
+                state._titlesFullLoaded = false;
+                state._appendingLock = false;
+                state._renderChain = null;
+                state._chapterLoading = null;
+                state._geomDirty = false;
+                if (state.autoHideTimer) { clearTimeout(state.autoHideTimer); state.autoHideTimer = null; }
+                readerPage.classList.remove('active');
+                uploadPage.classList.remove('hidden');
+                contentArea.scrollTop = 0;
+                chapterContent.innerHTML = '';
+                // 重置侧边栏显隐状态
+                document.body.classList.remove('dock-hidden');
+            }
+
+            // ==================== 事件监听 ====================
+            // 文件上传
+            fileInput.addEventListener('change', async (e) => {
+                const file = e.target.files[0];
+                if (file) await handleFile(file);
+                fileInput.value = '';
+            });
+
+            // 拖拽上传
+            dropzone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropzone.classList.add('dragover');
+            });
+            dropzone.addEventListener('dragleave', (e) => {
+                e.preventDefault();
+                dropzone.classList.remove('dragover');
+            });
+            dropzone.addEventListener('drop', async (e) => {
+                e.preventDefault();
+                dropzone.classList.remove('dragover');
+                const file = e.dataTransfer.files[0];
+                if (file) await handleFile(file);
+            });
+
+            async function handleFile(file) {
+                const lowerName = file.name.toLowerCase();
+                const isTxt = lowerName.endsWith('.txt');
+                const isEpub = lowerName.endsWith('.epub');
+                if (!isTxt && !isEpub) {
+                    alert('请选择 .epub 或 .txt 格式的文件');
+                    return;
+                }
+                cleanupBlobUrls();
+                state.renderedUpTo = -1;
+                state.renderedLo = -1;
+                state._renderChain = null;
+                state._chapterLoading = null;
+                const success = isTxt ? await parseTxt(file) : await parseEpub(file);
+                if (success) {
+                    uploadPage.classList.add('hidden');
+                    readerPage.classList.add('active');
+                    // 进入阅读默认显示侧边栏 dock，稍后自动隐藏
+                    toggleDock(true);
+
+                    // Fix5：从 epub-last-book / marker 恢复进度（顺便修复之前"保存了但从不恢复"的缺失）
+                    const resume = restoreLastProgressIfMatch(state.bookInfo.title, state.bookInfo.author);
+                    const startAt = resume && resume.chapter != null ? resume.chapter : 0;
+                    await loadChapter(startAt);
+
+                    // Fix5：进入阅读 → 立刻写 1 次重型存档 + 启动 20s 定期持久化（关页前大部分进度已经异步落盘，卸载事件不卡）
+                    persistLastBook(true);
+                    startPeriodicPersist();
+
+                    scheduleAutoHideDock();
+                }
+            }
+
+            // ===== Fix5：持久化（重型 epub-last-book 15s 节流 / 轻型 marker 200B）=====
+
+            // 重型存档：title+author+chapter+totalChapters+scrollPositions（可能 30~200KB），仅在进入/退出/20s 定期触发
+            function persistLastBook(force = false) {
+                const now = Date.now();
+                if (!force && state._lastPersistAt && now - state._lastPersistAt < 15000) return; // 15s 节流
+                state._lastPersistAt = now;
+                try {
+                    localStorage.setItem('epub-last-book', JSON.stringify({
+                        title: state.bookInfo.title,
+                        author: state.bookInfo.author,
+                        chapter: state.currentChapter,
+                        chapterTitle: state.chapterTitles[state.currentChapter],
+                        totalChapters: state.totalChapters,
+                        scrollPositions: state.scrollPositions,
+                        timestamp: now,
+                    }));
+                } catch (e) {}
+            }
+
+            // 轻型 marker：关页 beforeunload 仅写这个（≤200B），保证"最后一次读到哪里"不会丢
+            function persistMarker() {
+                try {
+                    const ci = state.currentChapter || 0;
+                    localStorage.setItem('epub-progress-marker', JSON.stringify({
+                        t: String(state.bookInfo.title || '').slice(0, 30),
+                        c: ci,
+                        r: typeof state.scrollPositions[ci] === 'number' ? state.scrollPositions[ci] : 0,
+                        ts: Date.now(),
+                    }));
+                } catch (e) {}
+            }
+
+            // 启动 20s 定期持久化（进入阅读时调用；退出书架时 clearInterval）
+            function startPeriodicPersist() {
+                if (state._persistTimer) { clearInterval(state._persistTimer); state._persistTimer = null; }
+                state._persistTimer = setInterval(() => {
+                    try { saveScrollPosition(); } catch (e) {}
+                    persistLastBook(false);
+                }, 20000);
+            }
+            function stopPeriodicPersist() {
+                if (state._persistTimer) { clearInterval(state._persistTimer); state._persistTimer = null; }
+            }
+
+            // 恢复：匹配书名就把 lastBook 的 scrollPositions 灌回 state，再用 marker 覆盖 currentChapter（marker 永远是最新的）
+            function restoreLastProgressIfMatch(title, author) {
+                let chapterIdx = null;
+                const norm = s => String(s || '').replace(/\s+/g, '').slice(0, 20);
+                const wantTitle = norm(title);
+                try {
+                    const raw = localStorage.getItem('epub-last-book');
+                    if (raw) {
+                        const info = JSON.parse(raw);
+                        // 仅按书名匹配（TXT 一律"未知作者"，author 匹配会导致不同书互相误恢复进度）
+                        if (norm(info.title) === wantTitle) {
+                            if (info && typeof info.scrollPositions === 'object' && info.scrollPositions) {
+                                // 只接受 [0,1] 有限数值，损坏存档不污染滚动位置
+                                const clean = {};
+                                for (const k of Object.keys(info.scrollPositions)) {
+                                    const v = info.scrollPositions[k];
+                                    if (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1) clean[k] = v;
+                                }
+                                state.scrollPositions = clean;
+                            }
+                            if (typeof info.chapter === 'number' && info.totalChapters === state.totalChapters) {
+                                chapterIdx = Math.max(0, Math.min(state.totalChapters - 1, info.chapter));
+                            }
+                        }
+                    }
+                } catch (e) {}
+                // marker 覆盖（永远最新、更可靠）
+                try {
+                    const mRaw = localStorage.getItem('epub-progress-marker');
+                    if (mRaw) {
+                        const m = JSON.parse(mRaw);
+                        if (m && norm(m.t) === wantTitle && typeof m.c === 'number') {
+                            const ci = Math.max(0, Math.min(state.totalChapters - 1, m.c));
+                            chapterIdx = ci;
+                            if (typeof m.r === 'number') {
+                                state.scrollPositions[ci] = Math.max(0, Math.min(1, m.r));
+                            }
+                        }
+                    }
+                } catch (e) {}
+                return chapterIdx != null ? { chapter: chapterIdx } : null;
+            }
+
+            // ========== 右侧侧边栏 dock 按钮绑定 ==========
+            if (dockToc) dockToc.addEventListener('click', (e) => { e.stopPropagation(); openToc(); });
+            if (dockNight) dockNight.addEventListener('click', (e) => { e.stopPropagation(); toggleNightMode(); });
+            if (dockSettings) dockSettings.addEventListener('click', (e) => { e.stopPropagation(); openSettings(); });
+            if (dockHome) dockHome.addEventListener('click', (e) => { e.stopPropagation(); goBackToUpload(); });
+
+            /**
+             * 跳转到「当前章节」的首或尾（不是整书首尾）
+             * @param {'top'|'bottom'} edge
+             */
+            async function jumpToCurrentChapterEdge(edge) {
+                const ci = Math.max(0, Math.min(state.totalChapters - 1, state.currentChapter));
+                // 确保当前章在 seamless 模式下已渲染（await：窗口回收后需要重建，不能在渲染完成前查询）
+                if (state.seamlessMode && state.renderedUpTo < ci) {
+                    try { await renderSeamlessUpTo(ci); } catch (err) {}
+                }
+                const chapMax = Math.max(0, contentArea.scrollHeight - contentArea.clientHeight);
+                let target;
+                if (state.seamlessMode) {
+                    const block = document.querySelector(`.chapter-block[data-idx="${ci}"]`);
+                    if (block) {
+                        if (edge === 'top') {
+                            target = block.offsetTop;
+                        } else {
+                            // 本块的尾端，让其最后一屏出现在视口底部（同时避免越界）
+                            const bottomOfBlock = block.offsetTop + block.offsetHeight;
+                            const vh = contentArea.clientHeight;
+                            target = Math.max(0, Math.min(chapMax, bottomOfBlock - vh));
+                        }
+                    } else {
+                        // 当前块没找到，兜底用整书顶/底
+                        target = edge === 'top' ? 0 : chapMax;
+                    }
+                } else {
+                    target = edge === 'top' ? 0 : chapMax;
+                }
+                contentArea.scrollTo({ top: target, behavior: 'smooth' });
+                // 同步进度：top 对应 0，bottom 对应 1
+                if (edge === 'top') {
+                    state.scrollPositions[ci] = 0;
+                } else {
+                    state.scrollPositions[ci] = 1;
+                }
+                saveScrollPosition();
+                setTimeout(() => { saveScrollPosition(); }, 650);
+            }
+
+            if (dockTop) dockTop.addEventListener('click', (e) => {
+                e.stopPropagation();
+                jumpToCurrentChapterEdge('top');
+                showDockTemporarily();
+            });
+
+            // 目录/设置面板关闭按钮
+            const btnTocClose = $('#btn-toc-close');
+            const btnSettingsClose = $('#btn-settings-close');
+            if (btnTocClose) btnTocClose.addEventListener('click', closeToc);
+            if (tocOverlay) tocOverlay.addEventListener('click', closeToc);
+            if (btnSettingsClose) btnSettingsClose.addEventListener('click', closeSettings);
+            if (settingsOverlay) settingsOverlay.addEventListener('click', closeSettings);
+
+            // 三区点击（长页式）— 使用短延迟避免与触摸手势/滚动冲突
+            let triZoneClickTimer = null;
+            contentArea.addEventListener('click', (e) => {
+                if (state.ignoreClick) { state.ignoreClick = false; return; }
+                if (triZoneClickTimer) return;
+                triZoneClickTimer = setTimeout(() => {
+                    triZoneClickTimer = null;
+                    handleTriZoneClick(e);
+                }, 60);
+            });
+
+            // 键盘事件（长页式扩展 + 侧边栏快捷键：T目录 / N夜间 / B书架）
+            document.addEventListener('keydown', (e) => {
+                if (!readerPage.classList.contains('active')) return;
+                const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
+                if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+
+                // Esc 关面板
+                if (e.key === 'Escape') {
+                    if (state.isTocOpen) closeToc();
+                    if (state.isSettingsOpen) closeSettings();
+                    return;
+                }
+
+                if (state.isTocOpen || state.isSettingsOpen || state.isDraggingProgress) {
+                    // 面板打开时，只有快捷键 目录/夜间/设置/Esc 能操作
+                    const k = (e.key || '').toLowerCase();
+                    if (k === 't') { e.preventDefault(); closeToc(); return; }
+                    if (k === 'n') { e.preventDefault(); toggleNightMode(); return; }
+                    return;
+                }
+
+                const k = (e.key || '').toLowerCase();
+                // 字母快捷键（侧边栏）
+                if (e.key === 'Tab') {
+                    e.preventDefault();
+                    toggleDockPin();
+                    return;
+                }
+                if (k === 't') { e.preventDefault(); openToc(); return; }
+                if (k === 'n') { e.preventDefault(); toggleNightMode(); return; }
+                if (k === 'b') { e.preventDefault(); goBackToUpload(); return; }
+                if (k === 'm') { e.preventDefault(); toggleDock(); return; } // M 切换侧边栏显隐
+
+                switch (e.key) {
+                    case 'ArrowLeft':
+                        e.preventDefault();
+                        goToPrevChapter();
+                        showDockTemporarily();
+                        break;
+                    case 'ArrowRight':
+                        e.preventDefault();
+                        goToNextChapter();
+                        showDockTemporarily();
+                        break;
+                    case ' ':
+                    case 'PageDown':
+                        e.preventDefault();
+                        scrollPageDown();
+                        // 空格/PageDown 纯翻页：不呼出侧边栏（沉浸式）
+                        break;
+                    case 'PageUp':
+                        e.preventDefault();
+                        scrollPageUp();
+                        // 沉浸式：不呼出侧边栏
+                        break;
+                    case 'ArrowUp':
+                        e.preventDefault();
+                        contentArea.scrollBy({ top: -Math.floor(contentArea.clientHeight * 0.25), behavior: 'smooth' });
+                        // 小量滚动：不呼出侧边栏
+                        break;
+                    case 'ArrowDown':
+                        e.preventDefault();
+                        contentArea.scrollBy({ top: Math.floor(contentArea.clientHeight * 0.25), behavior: 'smooth' });
+                        // 小量滚动：不呼出侧边栏
+                        break;
+                    case 'Home': {
+                        e.preventDefault();
+                        jumpToCurrentChapterEdge('top');
+                        updateUI();
+                        setTimeout(() => updateUI(), 650);
+                        break;
+                    }
+                    case 'End': {
+                        e.preventDefault();
+                        jumpToCurrentChapterEdge('bottom');
+                        updateUI();
+                        setTimeout(() => updateUI(), 650);
+                        break;
+                    }
+                }
+                // （showDockTemporarily 已从全局去掉：仅 ArrowLeft/Right 翻章时临时呼出，其他滚动/翻页不打扰）
+            });
+
+            // 滚动事件：保存位置 + 无缝模式追加下一章
+            // 追加判断用 rAF 合流（一帧最多一次），避免高频 scroll 事件反复读取布局属性
+            let scrollAppendPending = false;
+            contentArea.addEventListener('scroll', () => {
+                debouncedSaveScroll();
+                if (scrollAppendPending) return;
+                scrollAppendPending = true;
+                requestAnimationFrame(() => {
+                    scrollAppendPending = false;
+                    tryAppendNextChapterIfNeeded();
+                });
+            });
+
+            // 章节内图片异步加载完成后块高变化 → 标记几何缓存过期（事件委托，capture 覆盖动态插入的 img）
+            chapterContent.addEventListener('load', (e) => {
+                if (e.target && e.target.tagName === 'IMG') state._geomDirty = true;
+            }, true);
+
+            // 触摸手势（长页式：左右滑翻章；上下滑 dock 显隐）
+            contentArea.addEventListener('touchstart', (e) => {
+                if (!e.touches[0]) return;
+                const t = e.touches[0];
+                state.touchStart = { x: t.clientX, y: t.clientY, time: Date.now(), scrollTop: contentArea.scrollTop };
+            }, { passive: true });
+            contentArea.addEventListener('touchend', (e) => {
+                if (!state.touchStart) return;
+                const t = e.changedTouches[0];
+                if (!t) return;
+                const dx = t.clientX - state.touchStart.x;
+                const dy = t.clientY - state.touchStart.y;
+                const dt = Date.now() - state.touchStart.time;
+                const adx = Math.abs(dx), ady = Math.abs(dy);
+                const isFast = dt < 500;
+
+                // 左右滑动 → 翻章节（水平主导、足够距离、快速）
+                if (adx > state.swipeThresholdX && adx > ady * 1.3 && isFast) {
+                    if (dx < 0) goToNextChapter();
+                    else goToPrevChapter();
+                    state.ignoreClick = true;
+                    showDockTemporarily();
+                    state.touchStart = null;
+                    return;
+                }
+
+                // 上下滑动 → 侧边栏 dock 显隐
+                if (ady > state.swipeThresholdY && ady > adx) {
+                    if (dy < 0) toggleDock(false);
+                    else if (dy > 0 && contentArea.scrollTop < 30) toggleDock(true);
+                    state.ignoreClick = true;
+                }
+                state.touchStart = null;
+            }, { passive: true });
+
+            // 设置面板事件（字号、主题、字体、行距）
+            const btnFontMinus = $('#font-size-minus');
+            const btnFontPlus = $('#font-size-plus');
+            if (btnFontMinus) btnFontMinus.addEventListener('click', () => setFontSize(state.settings.fontSize - 1));
+            if (btnFontPlus) btnFontPlus.addEventListener('click', () => setFontSize(state.settings.fontSize + 1));
+            $$('.theme-option').forEach(el => {
+                el.addEventListener('click', () => {
+                    if (el.dataset.theme === 'custom') {
+                        // 已有自定义色且当前不是 custom：一键切回；否则（首次或已在 custom）打开选色器选/改色
+                        if (state.settings.theme !== 'custom' && state.settings.customBg) {
+                            setTheme('custom');
+                        } else {
+                            openCustomBgPicker();
+                        }
+                    } else {
+                        setTheme(el.dataset.theme);
+                    }
+                });
+            });
+            // 颜色选择器：选定背景色后应用为自定义主题
+            const customBgPicker = document.getElementById('custom-bg-picker');
+            if (customBgPicker) {
+                customBgPicker.addEventListener('input', (e) => {
+                    const color = e.target.value;
+                    if (/^#[0-9a-f]{6}$/i.test(color)) {
+                        state.settings.customBg = color;
+                        state.settings.theme = 'custom';
+                        applySettingsToContent();
+                        updateSettingsUI();
+                        saveSettings();
+                        syncNightIcon();
+                    }
+                });
+            }
+            $$('.font-option').forEach(el => {
+                el.addEventListener('click', () => setFontFamily(el.dataset.font));
+            });
+            $$('.line-height-option').forEach(el => {
+                el.addEventListener('click', () => setLineHeight(parseFloat(el.dataset.lh)));
+            });
+
+            // 窗口大小变化：标记几何缓存过期 + 恢复滚动位置
+            window.addEventListener('resize', () => {
+                state._geomDirty = true;
+                const pos = state.scrollPositions[state.currentChapter];
+                if (pos !== undefined) {
+                    requestAnimationFrame(() => {
+                        if (state.seamlessMode) {
+                            const blockEl = chapterContent.querySelector(`.chapter-block[data-idx="${state.currentChapter}"]`);
+                            if (blockEl) {
+                                const blockHeight = Math.max(1, blockEl.offsetHeight);
+                                contentArea.scrollTop = Math.max(0, blockEl.offsetTop + blockHeight * pos - 20);
+                            }
+                        } else {
+                            const maxScroll = contentArea.scrollHeight - contentArea.clientHeight;
+                            contentArea.scrollTop = pos * maxScroll;
+                        }
+                    });
+                }
+            });
+
+            // 页面关闭时保存（Fix5：只写 200B marker，不做大 JSON 序列化，避免关页白屏）
+            window.addEventListener('beforeunload', () => {
+                try { saveScrollPosition(); } catch (e) {}
+                try {
+                    stopPeriodicPersist();
+                    persistMarker();
+                } catch (e) {}
+            });
+
+            // ==================== 初始化 ====================
+            function init() {
+                loadSettings();
+                applySettingsToContent();
+                updateSettingsUI();
+                syncNightIcon();
+
+                // 初始 dock 默认显示
+                document.body.classList.toggle('dock-hidden', !state.isToolbarVisible);
+
+                // 上次阅读提示（上传页）
+                try {
+                    const lastBook = localStorage.getItem('epub-last-book');
+                    if (lastBook) {
+                        const info = JSON.parse(lastBook);
+                        const lastTime = new Date(info.timestamp);
+                        const now = new Date();
+                        const hoursDiff = (now - lastTime) / (1000 * 60 * 60);
+                        if (hoursDiff < 72) {
+                            const hint = document.querySelector('.upload-footer');
+                            const ch = typeof info.chapter === 'number' && Number.isFinite(info.chapter)
+                                ? info.chapter + 1 : null;
+                            if (hint && ch !== null) {
+                                hint.textContent = `上次阅读：《${info.title || '未知书名'}》 · 第${ch}章 · 重新上传可继续阅读`;
+                                hint.style.color = 'var(--accent)';
+                            }
+                        }
+                    }
+                } catch (e) {}
+
+                console.log('📖 云阅读 EPUB/TXT阅读器已就绪（长页式侧边栏 + 沉浸阅读）');
+                console.log('   - 三区点击：左28%上翻 / 中44%切换侧边栏 / 右28%下翻');
+                console.log('   - 右侧侧边栏：☰目录 · 🌙夜间 · ⚙设置 · 📖书架 · ↑顶部');
+                console.log('   - 快捷键：←→切章 / 空格翻页 / T目录 / N夜间 / B书架 / M显隐侧边栏');
+                console.log('   - 手势：左右滑动翻章 · 上下滑动侧边栏显隐');
+                console.log('   - 无缝长阅读：滚到底部自动衔接下一章 · TXT自动识别编码与分章');
+            }
+
+            init();
+        })();
+    </script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+# Editor and operating-system files
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Local test and capture artifacts
+_tmp/
+*.log
