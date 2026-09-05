@@ -1,6 +1,6 @@
 # 云阅读
 
-一个无需安装、在浏览器本地运行的 EPUB / TXT 阅读器。下载或克隆后直接打开 `txt.html` 即可使用。
+一个无需安装、在浏览器本地运行且可离线使用的 EPUB / TXT 阅读器。下载或克隆后直接打开 `txt.html` 即可使用。
 
 ![上传页](assets/screenshots/upload.png)
 
@@ -40,7 +40,7 @@
 
 ## 隐私与数据
 
-电子书正文在浏览器本地解析和渲染。阅读设置与进度使用浏览器 `localStorage` 保存；清除本站点数据会删除这些记录。EPUB 解析依赖 JSZip，页面默认从 cdnjs 加载该库；离线使用时可将该依赖下载至本地，并替换 `txt.html` 中的脚本地址。
+电子书正文在浏览器本地解析和渲染。阅读设置与进度使用浏览器 `localStorage` 保存；清除本站点数据会删除这些记录。EPUB 解析所需的 JSZip 3.10.1 已固定在 `vendor/` 中，页面不会为此请求 CDN 或检测网络状态。
 
 ## 项目结构
 
@@ -49,6 +49,7 @@ cloud-reader/
 ├── txt.html                  # 阅读器，直接打开即可运行
 ├── assets/screenshots/       # README 中的真实界面截图
 ├── LICENSE                   # MIT 许可证
+├── THIRD_PARTY_NOTICES.md    # JSZip 的 MIT 许可声明
 └── README.md
 ```
 
@@ -60,4 +61,4 @@ cloud-reader/
 
 ## 开源许可
 
-本项目采用 [MIT License](LICENSE) 开源。
+本项目采用 [MIT License](LICENSE) 开源；随项目分发的 JSZip 3.10.1 亦按其可选的 MIT 条款使用，详见 [第三方声明](THIRD_PARTY_NOTICES.md)。
