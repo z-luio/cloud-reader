@@ -1,5 +1,7 @@
 # 云阅读
 
+[English](README.en.md)
+
 一个无需安装、在浏览器本地运行且可离线使用的 EPUB / TXT 阅读器。下载或克隆后直接打开 `txt.html` 即可使用。
 
 ![上传页](assets/screenshots/upload.png)
@@ -52,7 +54,8 @@ cloud-reader/
 ├── THIRD_PARTY_NOTICES.md    # JSZip 的 MIT 许可声明
 ├── vendor/
 │   └── jszip-3.10.1.min.js   # 已校验的 EPUB 解析依赖，随仓库发布
-└── README.md
+├── README.md                 # 简体中文说明
+└── README.en.md              # English documentation
 ```
 
 ## 已知范围
