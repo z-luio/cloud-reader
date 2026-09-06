@@ -229,6 +229,7 @@
             width: 100%;
             height: 100%;
             opacity: 0;
+            pointer-events: none;
             cursor: pointer;
         }
         .upload-footer {
@@ -969,6 +970,17 @@
         #loading-indicator.active {
             display: flex;
         }
+        #notice-dialog {
+            position: fixed; inset: 0; z-index: 300; display: flex;
+            align-items: center; justify-content: center; padding: 24px;
+            background: rgba(35, 24, 15, 0.24); opacity: 0; pointer-events: none; transition: opacity 0.2s;
+        }
+        #notice-dialog.active { opacity: 1; pointer-events: auto; }
+        .notice-card { width: min(420px, 100%); padding: 22px 24px 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel-bg); box-shadow: 0 14px 40px var(--shadow); color: var(--text); }
+        .notice-title { margin-bottom: 8px; font-size: 16px; font-weight: 700; }
+        .notice-message { color: var(--text-secondary); font-size: 14px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+        .notice-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
+        .notice-close { border: 0; border-radius: 7px; padding: 7px 16px; background: var(--accent); color: #fff; cursor: pointer; }
 
         /* 章节间过渡遮罩 */
         #chapter-loading-overlay {
@@ -1276,6 +1288,13 @@
 
     <!-- 章节切换遮罩 -->
     <div id="chapter-loading-overlay">加载中...</div>
+    <div id="notice-dialog" role="alertdialog" aria-modal="true" aria-labelledby="notice-title">
+        <div class="notice-card">
+            <div class="notice-title" id="notice-title">提示</div>
+            <div class="notice-message" id="notice-message"></div>
+            <div class="notice-actions"><button class="notice-close" id="notice-close" type="button">知道了</button></div>
+        </div>
+    </div>
 
     <script>
         (function() {
@@ -1442,6 +1461,10 @@
             const importProgress = $('#import-progress');
             const cancelLoading = $('#cancel-loading');
             const chapterLoadingOverlay = $('#chapter-loading-overlay');
+            const noticeDialog = $('#notice-dialog');
+            const noticeTitle = $('#notice-title');
+            const noticeMessage = $('#notice-message');
+            const noticeClose = $('#notice-close');
             const fontSizeDisplay = $('#font-size-display');
 
             // 长页式右侧侧边栏
@@ -1504,6 +1527,18 @@
                     state.chapterLoadingTaskId = null;
                 }
             }
+
+            let noticeTimer = null;
+            function showNotice(message, title = '提示') {
+                noticeTitle.textContent = title;
+                noticeMessage.textContent = String(message || '操作未完成');
+                noticeDialog.classList.add('active');
+                clearTimeout(noticeTimer);
+                noticeTimer = setTimeout(() => noticeDialog.classList.remove('active'), 6500);
+            }
+            function closeNotice() { clearTimeout(noticeTimer); noticeDialog.classList.remove('active'); }
+            noticeClose.addEventListener('click', closeNotice);
+            noticeDialog.addEventListener('click', event => { if (event.target === noticeDialog) closeNotice(); });
 
             function assertCurrentLoad(taskId) {
                 if (taskId !== state.loadToken) throw new DOMException('加载任务已过期', 'AbortError');
@@ -1967,7 +2002,7 @@
                 } catch (err) {
                     if (err.name === 'AbortError') return false;
                     console.error('多 TXT 解析失败:', err);
-                    alert('多 TXT 导入失败：' + err.message);
+                    showNotice('多 TXT 导入失败：' + err.message, '导入失败');
                     return false;
                 } finally {
                     showLoading(false, null, null, loadToken);
@@ -2009,7 +2044,7 @@
                     showLoading(false, null, null, loadToken);
                     if (err.name === 'AbortError') return false;
                     console.error('TXT解析失败:', err);
-                    alert('TXT解析失败：' + err.message);
+                    showNotice('TXT解析失败：' + err.message, '解析失败');
                     return false;
                 }
             }
@@ -2105,7 +2140,7 @@
                     showLoading(false, null, null, loadToken);
                     if (err.name === 'AbortError') return false;
                     console.error('EPUB解析失败:', err);
-                    alert('EPUB解析失败：' + err.message);
+                    showNotice('EPUB解析失败：' + err.message, '解析失败');
                     return false;
                 }
             }
@@ -2189,7 +2224,7 @@
                 } catch (err) {
                     if (err.name === 'AbortError') return;
                     console.error('加载章节失败:', err);
-                    alert('加载章节失败：' + err.message);
+                    showNotice('加载章节失败：' + err.message, '章节加载失败');
                 } finally {
                     showChapterLoading(false, loadToken);
                 }
@@ -3236,6 +3271,7 @@
                 if (e.target.files.length) await handleFiles(e.target.files);
                 fileInput.value = '';
             });
+            dropzone.addEventListener('click', () => fileInput.click());
             folderPickerButton.addEventListener('click', () => folderInput.click());
             folderInput.addEventListener('change', async (e) => {
                 if (e.target.files.length) await handleFiles(e.target.files, true);
@@ -3265,7 +3301,7 @@
                     return;
                 }
                 if (!files.length || (!fromFolder && files.some(file => !/\.txt$/i.test(file.name)))) {
-                    alert('多文件导入仅支持 TXT 文件；EPUB 请单独选择');
+                    showNotice('多文件导入仅支持 TXT 文件；EPUB 请单独选择', '文件格式不支持');
                     return;
                 }
                 state._importAbortController?.abort();
@@ -3289,7 +3325,7 @@
                 } catch (err) {
                     if (err.name !== 'AbortError') {
                         console.error('多 TXT 阅读启动失败:', err);
-                        alert('多 TXT 阅读启动失败：' + err.message);
+                        showNotice('多 TXT 阅读启动失败：' + err.message, '打开失败');
                     }
                 } finally {
                     if (state._importAbortController === importController) state._importAbortController = null;
@@ -3301,7 +3337,7 @@
                 const isTxt = lowerName.endsWith('.txt');
                 const isEpub = lowerName.endsWith('.epub');
                 if (!isTxt && !isEpub) {
-                    alert('请选择 .epub 或 .txt 格式的文件');
+                    showNotice('请选择 .epub 或 .txt 格式的文件', '文件格式不支持');
                     return;
                 }
                 state._importAbortController?.abort();
@@ -3323,7 +3359,7 @@
                 } catch (err) {
                     if (err.name !== 'AbortError') {
                         console.error('阅读启动失败:', err);
-                        alert('阅读启动失败：' + err.message);
+                        showNotice('阅读启动失败：' + err.message, '打开失败');
                     }
                 }
             }
